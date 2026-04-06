@@ -1,0 +1,40 @@
+# Plan (internal project docs)
+.plan/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+venv/
+.venv/
+
+# Environment
+.env
+*.local.yaml
+settings.local.yaml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads
+uploads/*
+!uploads/.gitkeep
+
+# Docker
+docker-compose.override.yml
+
+# Tests
+.pytest_cache/
+htmlcov/
+.coverage
