@@ -1,0 +1,54 @@
+# mas-pipeline global settings
+# Override with config/settings.local.yaml or environment variables
+
+models:
+  strong: gemini-2.5-pro
+  medium: claude-sonnet-4-6
+  light: gpt-4o-mini
+
+embedding:
+  model: text-embedding-3-small
+  provider: openai
+  dimensions: 1536
+
+providers:
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}
+    api_base: https://api.anthropic.com
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    api_base: https://api.openai.com/v1
+  gemini:
+    api_key: ${GEMINI_API_KEY}
+    api_base: https://generativelanguage.googleapis.com/v1beta/openai
+  deepseek:
+    api_key: ${DEEPSEEK_API_KEY}
+    api_base: https://api.deepseek.com/v1
+  ollama:
+    api_base: http://localhost:11434/v1
+
+database:
+  postgres_url: postgresql+psycopg://${POSTGRES_USER:mas}:${POSTGRES_PASSWORD:mas_dev_2024}@${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:mas_pipeline}
+  redis_url: redis://${REDIS_HOST:localhost}:${REDIS_PORT:6379}/0
+
+agent:
+  max_turns: 50
+  max_tool_concurrency: 10
+
+compact:
+  output_reserve: 20000
+  warning_buffer: 20000
+  autocompact_buffer: 13000
+  blocking_buffer: 3000
+
+session:
+  agent_ttl_hours: 24
+
+default_user:
+  name: default
+  email: admin@mas-pipeline.local
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  reload: true
