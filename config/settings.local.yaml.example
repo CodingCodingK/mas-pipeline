@@ -1,0 +1,12 @@
+# Copy this file to settings.local.yaml and fill in your API keys
+# This file is gitignored
+
+providers:
+  anthropic:
+    api_key: sk-ant-xxxxx
+  openai:
+    api_key: sk-xxxxx
+  gemini:
+    api_key: AIzaxxxxx
+  deepseek:
+    api_key: sk-xxxxx
