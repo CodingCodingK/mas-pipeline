@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, Integer, String, Text, func
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -38,3 +38,17 @@ class Project(Base):
     status: Mapped[str] = mapped_column(String(50), default="active")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    file_path: Mapped[str | None] = mapped_column(String(1000))
+    file_size: Mapped[int | None] = mapped_column(BigInteger)
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    parsed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
