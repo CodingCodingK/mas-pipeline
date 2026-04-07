@@ -2,28 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-import sqlalchemy as sa
-
-if TYPE_CHECKING:
-    from datetime import datetime
+from sqlalchemy import select
 
 from src.db import get_db
+from src.models import User
 from src.project.config import get_settings
-
-# ── Model ──────────────────────────────────────────────────
-
-
-@dataclass
-class User:
-    id: int
-    name: str
-    email: str | None
-    config: dict
-    created_at: datetime
-
 
 # ── Module-level cache ─────────────────────────────────────
 
@@ -44,24 +27,14 @@ async def get_current_user() -> User:
     user_name = settings.default_user.name
 
     async with get_db() as session:
-        row = (
-            await session.execute(
-                sa.text("SELECT id, name, email, config, created_at FROM users WHERE name = :name"),
-                {"name": user_name},
-            )
-        ).mappings().first()
+        result = await session.execute(select(User).where(User.name == user_name))
+        user = result.scalars().first()
 
-    if row is None:
+    if user is None:
         raise ValueError(
             f"Default user '{user_name}' not found in database. "
             "Run scripts/init_db.sql to seed the default user."
         )
 
-    _cached_user = User(
-        id=row["id"],
-        name=row["name"],
-        email=row["email"],
-        config=row["config"] if isinstance(row["config"], dict) else {},
-        created_at=row["created_at"],
-    )
+    _cached_user = user
     return _cached_user

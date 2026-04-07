@@ -7,7 +7,8 @@ import sys
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.auth.user import User, get_current_user
+from src.auth.user import get_current_user
+from src.models import User
 from src.project.config import get_settings
 
 
@@ -79,16 +80,14 @@ async def test_user_not_found():
         user_mod._cached_user = None
 
 
-async def test_user_dataclass_fields():
-    """Test that User dataclass has the expected fields."""
-    print("=== User dataclass fields ===")
+def test_user_orm_columns():
+    """Test that User ORM model has the expected columns."""
+    print("=== User ORM columns ===")
 
-    import dataclasses
-
-    fields = {f.name for f in dataclasses.fields(User)}
+    columns = {c.key for c in User.__table__.columns}
     expected = {"id", "name", "email", "config", "created_at"}
-    assert fields == expected, f"Expected fields {expected}, got {fields}"
-    print(f"  fields: {fields}")
+    assert columns == expected, f"Expected columns {expected}, got {columns}"
+    print(f"  columns: {columns}")
     print("  OK")
 
 
@@ -101,7 +100,7 @@ async def main():
     await init_db()
 
     try:
-        test_user_dataclass_fields()  # sync test, no await needed
+        test_user_orm_columns()
         await test_get_current_user()
         await test_caching()
         await test_user_not_found()
