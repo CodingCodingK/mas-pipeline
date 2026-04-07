@@ -17,6 +17,9 @@ ignore = [
     "E501",  # line too long (handled by formatter)
 ]
 
+[lint.per-file-ignores]
+"scripts/*.py" = ["E402"]  # sys.path.insert before imports
+
 [lint.isort]
 known-first-party = ["src"]
 
