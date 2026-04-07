@@ -94,6 +94,11 @@ class SessionConfig(BaseModel):
     agent_ttl_hours: int = 24
 
 
+class DefaultUserConfig(BaseModel):
+    name: str = "default"
+    email: str = ""
+
+
 class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8000
@@ -101,6 +106,7 @@ class ServerConfig(BaseModel):
 
 
 class Settings(BaseModel):
+    default_user: DefaultUserConfig = DefaultUserConfig()
     models: ModelsConfig = ModelsConfig()
     embedding: EmbeddingConfig = EmbeddingConfig()
     providers: dict[str, ProviderConfig] = {}
