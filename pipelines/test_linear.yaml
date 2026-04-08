@@ -1,0 +1,17 @@
+pipeline: test_linear
+description: 简单线性管线，用于测试
+
+nodes:
+  - name: researcher
+    role: general
+    output: findings
+
+  - name: writer
+    role: general
+    input: [findings]
+    output: draft
+
+  - name: reviewer
+    role: general
+    input: [draft]
+    output: feedback

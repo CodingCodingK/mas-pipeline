@@ -1,0 +1,30 @@
+pipeline: test_parallel
+description: 带并行分支的管线，用于测试 reactive 调度
+
+nodes:
+  - name: researcher
+    role: general
+    output: findings
+
+  - name: analyst
+    role: general
+    output: analysis
+
+  - name: fact_checker
+    role: general
+    output: facts
+
+  - name: writer
+    role: general
+    input: [findings, analysis]
+    output: draft
+
+  - name: reviewer
+    role: general
+    input: [draft, facts]
+    output: feedback
+
+  - name: editor
+    role: general
+    input: [draft, feedback]
+    output: final_article
