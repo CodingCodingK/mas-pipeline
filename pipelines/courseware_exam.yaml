@@ -1,0 +1,22 @@
+pipeline: courseware_exam
+description: 课件分析+出题管线（解析 → 知识点分析 → 出题 → 审题）
+
+nodes:
+  - name: parser
+    role: parser
+    output: parsed_content
+
+  - name: analyzer
+    role: analyzer
+    input: [parsed_content]
+    output: knowledge_points
+
+  - name: exam_generator
+    role: exam_generator
+    input: [knowledge_points]
+    output: exam_draft
+
+  - name: exam_reviewer
+    role: exam_reviewer
+    input: [exam_draft]
+    output: final_exam
