@@ -81,7 +81,7 @@ for role_name, expected_tools, expected_tier in [
 print("\n=== 4. Global tool pool ===")
 
 check("web_search in get_all_tools()", "web_search" in all_tools)
-check("Total tools = 6", len(all_tools) == 6, f"got {len(all_tools)}: {list(all_tools.keys())}")
+check("Total tools = 7", len(all_tools) == 7, f"got {len(all_tools)}: {list(all_tools.keys())}")
 
 # ── 5. Pipeline ↔ Role integration ──────────────────────
 

@@ -33,7 +33,9 @@ dependencies = [
     "langgraph-checkpoint-postgres>=2.0",
     # Document parsing
     "pymupdf>=1.25",
+    "pymupdf4llm>=0.0.17",
     "python-pptx>=1.0",
+    "python-docx>=1.1",
     # Token counting
     "tiktoken>=0.8",
 ]

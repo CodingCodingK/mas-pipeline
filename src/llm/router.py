@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from src.llm.anthropic import AnthropicAdapter
 from src.llm.openai_compat import OpenAICompatAdapter
 from src.project.config import get_settings
 
@@ -55,6 +56,13 @@ def route(model_name: str) -> LLMAdapter:
     if provider_cfg is None:
         raise ValueError(
             f"Provider '{provider_name}' not configured in settings.providers"
+        )
+
+    if provider_name == "anthropic":
+        return AnthropicAdapter(
+            api_base=provider_cfg.api_base,
+            api_key=provider_cfg.api_key,
+            model=model_name,
         )
 
     return OpenAICompatAdapter(

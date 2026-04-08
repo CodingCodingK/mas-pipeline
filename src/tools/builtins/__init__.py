@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from src.tools.builtins.memory import MemoryReadTool, MemoryWriteTool
 from src.tools.builtins.read_file import ReadFileTool
+from src.tools.builtins.search_docs import SearchDocsTool
 from src.tools.builtins.shell import ShellTool
 from src.tools.builtins.web_search import WebSearchTool
 
@@ -30,5 +31,6 @@ def get_all_tools() -> dict[str, Tool]:
         WebSearchTool(),
         MemoryReadTool(),
         MemoryWriteTool(),
+        SearchDocsTool(),
     ]
     return {t.name: t for t in tools}
