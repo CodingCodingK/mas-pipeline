@@ -33,16 +33,16 @@ CREATE INDEX idx_projects_user ON projects(user_id);
 CREATE INDEX idx_projects_status ON projects(status);
 
 -- ============================================================
--- user_sessions (cross-run, persistent)
+-- conversations (cross-run user conversation history)
 -- ============================================================
-CREATE TABLE user_sessions (
+CREATE TABLE conversations (
     id          SERIAL PRIMARY KEY,
     project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     messages    JSONB DEFAULT '[]',
     created_at  TIMESTAMP DEFAULT NOW(),
     updated_at  TIMESTAMP DEFAULT NOW()
 );
-CREATE INDEX idx_user_sessions_project ON user_sessions(project_id);
+CREATE INDEX idx_conversations_project ON conversations(project_id);
 
 -- ============================================================
 -- workflow_runs (one per pipeline execution instance)
@@ -50,7 +50,7 @@ CREATE INDEX idx_user_sessions_project ON user_sessions(project_id);
 CREATE TABLE workflow_runs (
     id          SERIAL PRIMARY KEY,
     project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    session_id  INTEGER REFERENCES user_sessions(id),
+    session_id  INTEGER REFERENCES conversations(id),
     run_id      VARCHAR(255) UNIQUE NOT NULL,
     pipeline    VARCHAR(255),
     status      VARCHAR(50) DEFAULT 'pending',

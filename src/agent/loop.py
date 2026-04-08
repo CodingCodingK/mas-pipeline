@@ -4,10 +4,24 @@ from __future__ import annotations
 
 import logging
 
+from src.agent.compact import (
+    auto_compact,
+    estimate_tokens,
+    get_thresholds,
+    micro_compact,
+    reactive_compact,
+)
 from src.agent.messages import format_assistant_msg, format_tool_msg
 from src.agent.state import AgentState, ExitReason
+from src.project.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+def _is_context_length_error(exc: Exception) -> bool:
+    """Check if an exception is a context length exceeded error."""
+    msg = str(exc).lower()
+    return "context_length_exceeded" in msg or "prompt_too_long" in msg
 
 
 async def agent_loop(state: AgentState) -> ExitReason:
@@ -16,11 +30,29 @@ async def agent_loop(state: AgentState) -> ExitReason:
     All dependencies (adapter, tools, orchestrator, tool_context) live on *state*.
     Returns an ExitReason; callers can inspect state.turn_count, state.messages, etc.
     """
+    # Resolve model name for thresholds
+    model = getattr(state.adapter, "model", "")
+    thresholds = get_thresholds(model)
+    settings = get_settings()
+    keep_recent = settings.compact.micro_keep_recent
+
     while True:
-        # --- compact pre-processing (Phase 3) ---
-        # microcompact: clear old tool results
-        # autocompact: compress when token count exceeds threshold
-        # blocking_limit: return TOKEN_LIMIT if still over limit after compact
+        # --- compact pre-processing ---
+        micro_compact(state.messages, keep_recent=keep_recent)
+
+        tokens = estimate_tokens(state.messages)
+        if tokens > thresholds.blocking_limit:
+            logger.warning("Token count %d exceeds blocking limit %d", tokens, thresholds.blocking_limit)
+            return ExitReason.TOKEN_LIMIT
+
+        if tokens > thresholds.autocompact_threshold:
+            logger.info("Token count %d exceeds autocompact threshold %d, compacting", tokens, thresholds.autocompact_threshold)
+            result = await auto_compact(state.messages, state.adapter, model)
+            state.messages = result.messages
+
+            if estimate_tokens(state.messages) > thresholds.blocking_limit:
+                logger.warning("Still over blocking limit after autocompact")
+                return ExitReason.TOKEN_LIMIT
 
         # Abort check 1: before LLM call
         if _is_aborted(state):
@@ -32,14 +64,21 @@ async def agent_loop(state: AgentState) -> ExitReason:
                 state.messages,
                 state.tools.list_definitions(),
             )
-        except Exception:
+        except Exception as exc:
+            # --- reactive compact ---
+            if _is_context_length_error(exc) and not state.has_attempted_reactive_compact:
+                logger.info("Context length exceeded, attempting reactive compact")
+                result = await reactive_compact(state.messages, state.adapter, model)
+                state.messages = result.messages
+                state.has_attempted_reactive_compact = True
+                continue
+
+            if _is_context_length_error(exc):
+                logger.warning("Context length exceeded after reactive compact")
+                return ExitReason.TOKEN_LIMIT
+
             logger.exception("LLM call failed (non-recoverable)")
             return ExitReason.ERROR
-
-        # --- reactive compact (Phase 3) ---
-        # If LLM returns prompt_too_long and not has_attempted_reactive_compact:
-        #   compact once, set flag, continue
-        # Else: return TOKEN_LIMIT
 
         # Append assistant message
         state.messages.append(format_assistant_msg(response))

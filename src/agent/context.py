@@ -24,15 +24,19 @@ def parse_role_file(path: str) -> tuple[dict, str]:
     return {}, text.strip()
 
 
-def build_system_prompt(role_body: str, project_root: str | None = None) -> str:
+def build_system_prompt(
+    role_body: str,
+    project_root: str | None = None,
+    memory_context: str | None = None,
+) -> str:
     """Build system prompt by concatenating layers: identity, role, memory, skill.
 
-    Memory and skill layers are Phase 3/5 placeholders (return None, skipped).
+    Skill layer is Phase 5 placeholder (returns None, skipped).
     """
     layers: list[str | None] = [
         _identity_layer(project_root),
         _role_layer(role_body),
-        _memory_layer(),
+        _memory_layer(memory_context),
         _skill_layer(),
     ]
     return "\n\n".join(layer for layer in layers if layer)
@@ -79,8 +83,10 @@ def _role_layer(role_body: str) -> str | None:
     return f"# Role\n{role_body}" if role_body else None
 
 
-def _memory_layer() -> str | None:
-    """Phase 3: return relevant memories for this agent/project."""
+def _memory_layer(memory_context: str | None = None) -> str | None:
+    """Return relevant memories for this agent/project."""
+    if memory_context:
+        return f"# Memory\n{memory_context}"
     return None
 
 

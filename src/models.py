@@ -78,3 +78,51 @@ class AgentRun(Base):
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    messages: Mapped[list] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class AgentSessionRecord(Base):
+    __tablename__ = "agent_sessions"
+
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    run_id: Mapped[int | None] = mapped_column(Integer)
+    agent_role: Mapped[str | None] = mapped_column(String(255))
+    messages: Mapped[list] = mapped_column(JSONB, default=list)
+    summary: Mapped[str | None] = mapped_column(Text)
+    token_count: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime | None] = mapped_column(server_default=func.now())
+    archived_at: Mapped[datetime | None] = mapped_column()
+
+
+class Memory(Base):
+    __tablename__ = "memories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    user_id: Mapped[int | None] = mapped_column(Integer)
+    scope: Mapped[str] = mapped_column(String(50), nullable=False)
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(String(500), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class CompactSummary(Base):
+    __tablename__ = "compact_summaries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    token_count: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())

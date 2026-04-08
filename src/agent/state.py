@@ -21,7 +21,7 @@ class ExitReason(str, Enum):
     MAX_TURNS = "max_turns"
     ABORT = "abort"
     ERROR = "error"
-    # Phase 3: TOKEN_LIMIT = "token_limit"
+    TOKEN_LIMIT = "token_limit"
     # Phase 5: HOOK_STOPPED = "hook_stopped"
 
 

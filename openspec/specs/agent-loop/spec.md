@@ -16,7 +16,7 @@ AgentState SHALL be a mutable dataclass containing messages, tools (ToolRegistry
 - **THEN** it SHALL be accessed as state.tool_context.agent_id, not state.agent_id
 
 ### Requirement: ExitReason enum covers Phase 1 exit conditions
-ExitReason SHALL be a str-based Enum with values: COMPLETED, MAX_TURNS, ABORT, ERROR. The enum SHALL be extensible for future phases (TOKEN_LIMIT in Phase 3, HOOK_STOPPED in Phase 5).
+ExitReason SHALL be a str-based Enum with values: COMPLETED, MAX_TURNS, ABORT, ERROR, TOKEN_LIMIT. TOKEN_LIMIT indicates the agent exceeded its context window and compact could not recover.
 
 #### Scenario: ExitReason values are strings
 - **WHEN** ExitReason.COMPLETED is compared to the string "completed"
@@ -25,6 +25,10 @@ ExitReason SHALL be a str-based Enum with values: COMPLETED, MAX_TURNS, ABORT, E
 #### Scenario: ExitReason serialization
 - **WHEN** ExitReason is serialized to JSON
 - **THEN** it SHALL produce a plain string value
+
+#### Scenario: TOKEN_LIMIT value
+- **WHEN** ExitReason.TOKEN_LIMIT is accessed
+- **THEN** it SHALL equal the string "token_limit"
 
 ### Requirement: ReAct loop drives LLM and tool execution
 agent_loop(state) SHALL implement a while-True loop that: (1) calls state.adapter with state.messages and tool definitions, (2) appends the assistant message, (3) if no tool_calls returns COMPLETED, (4) dispatches tool calls via state.orchestrator, (5) appends tool result messages, (6) increments turn_count and checks max_turns.
@@ -102,12 +106,30 @@ state.messages SHALL be a list of dicts in OpenAI chat completion format. Assist
 - **THEN** format_assistant_msg includes a "thinking" field in the dict
 
 ### Requirement: Compact hooks are placeholder only
-agent_loop SHALL contain comment placeholders at three positions: (1) microcompact + autocompact + blocking_limit check before LLM call, (2) reactive compact after LLM returns prompt_too_long error. AgentState SHALL include has_attempted_reactive_compact field defaulting to False.
+agent_loop SHALL integrate compact processing at three positions:
 
-#### Scenario: Compact placeholders do not affect execution
-- **WHEN** agent_loop runs in Phase 1
-- **THEN** compact placeholder comments are present but no compact logic executes
+1. **Before LLM call**: call `micro_compact(state.messages)` to clear old tool results. Then call `estimate_tokens(state.messages)`. If tokens exceed `blocking_limit`, return `ExitReason.TOKEN_LIMIT`. If tokens exceed `autocompact_threshold`, call `auto_compact(state.messages, state.adapter, model)` and replace `state.messages` with the result. If still above `blocking_limit` after autocompact, return `ExitReason.TOKEN_LIMIT`.
 
-#### Scenario: has_attempted_reactive_compact defaults to False
-- **WHEN** AgentState is created
-- **THEN** has_attempted_reactive_compact is False
+2. **After LLM error**: if LLM returns a `context_length_exceeded` error and `state.has_attempted_reactive_compact` is False, call `reactive_compact(state.messages, state.adapter, model)`, replace `state.messages`, set `has_attempted_reactive_compact = True`, and `continue` the loop. If `has_attempted_reactive_compact` is already True, return `ExitReason.TOKEN_LIMIT`.
+
+AgentState SHALL include `has_attempted_reactive_compact` field defaulting to False.
+
+#### Scenario: Microcompact runs every turn
+- **WHEN** agent_loop begins a new iteration
+- **THEN** `micro_compact` SHALL be called on `state.messages` before the LLM call
+
+#### Scenario: Autocompact triggered by threshold
+- **WHEN** `estimate_tokens(state.messages)` exceeds `autocompact_threshold`
+- **THEN** `auto_compact` SHALL be called and `state.messages` SHALL be replaced with the compacted result
+
+#### Scenario: Blocking limit exits loop
+- **WHEN** tokens exceed `blocking_limit` even after autocompact
+- **THEN** agent_loop SHALL return `ExitReason.TOKEN_LIMIT`
+
+#### Scenario: Reactive compact on first context_length_exceeded
+- **WHEN** LLM raises context_length_exceeded and `has_attempted_reactive_compact` is False
+- **THEN** `reactive_compact` SHALL be called, flag set to True, and loop continues
+
+#### Scenario: Second context_length_exceeded exits
+- **WHEN** LLM raises context_length_exceeded and `has_attempted_reactive_compact` is True
+- **THEN** agent_loop SHALL return `ExitReason.TOKEN_LIMIT`

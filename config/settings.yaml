@@ -39,10 +39,9 @@ agent:
   max_tool_concurrency: 10
 
 compact:
-  output_reserve: 20000
-  warning_buffer: 20000
-  autocompact_buffer: 13000
-  blocking_buffer: 3000
+  autocompact_pct: 0.85
+  blocking_pct: 0.95
+  micro_keep_recent: 3
 
 session:
   agent_ttl_hours: 24

@@ -84,10 +84,9 @@ class AgentConfig(BaseModel):
 
 
 class CompactConfig(BaseModel):
-    output_reserve: int = 20000
-    warning_buffer: int = 20000
-    autocompact_buffer: int = 13000
-    blocking_buffer: int = 3000
+    autocompact_pct: float = 0.85
+    blocking_pct: float = 0.95
+    micro_keep_recent: int = 3
 
 
 class SessionConfig(BaseModel):
@@ -120,6 +119,7 @@ class Settings(BaseModel):
     session: SessionConfig = SessionConfig()
     tavily: TavilyConfig = TavilyConfig()
     server: ServerConfig = ServerConfig()
+    context_windows: dict[str, int] = {}
 
 
 def load_yaml(path: Path) -> dict:
