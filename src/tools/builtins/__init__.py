@@ -1,0 +1,39 @@
+"""Built-in tool pool: central registry of all available tool instances."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from src.tools.builtins.read_file import ReadFileTool
+from src.tools.builtins.shell import ShellTool
+
+if TYPE_CHECKING:
+    from src.tools.base import Tool
+
+# Tools that sub-agents are NOT allowed to use (prevent recursive spawning).
+AGENT_DISALLOWED_TOOLS: set[str] = {"spawn_agent"}
+
+
+def get_all_tools() -> dict[str, Tool]:
+    """Return all built-in tool instances keyed by name.
+
+    Lazy imports for spawn_agent and task tools to avoid circular dependencies.
+    """
+    from src.tools.builtins.spawn_agent import SpawnAgentTool
+    from src.tools.builtins.task import (
+        TaskCreateTool,
+        TaskGetTool,
+        TaskListTool,
+        TaskUpdateTool,
+    )
+
+    tools: list[Tool] = [
+        ReadFileTool(),
+        ShellTool(),
+        SpawnAgentTool(),
+        TaskCreateTool(),
+        TaskUpdateTool(),
+        TaskListTool(),
+        TaskGetTool(),
+    ]
+    return {t.name: t for t in tools}

@@ -19,6 +19,7 @@ ignore = [
 
 [lint.per-file-ignores]
 "scripts/*.py" = ["E402"]  # sys.path.insert before imports
+"src/models.py" = ["TCH003"]  # SQLAlchemy needs datetime at runtime with `from __future__ import annotations`
 
 [lint.isort]
 known-first-party = ["src"]

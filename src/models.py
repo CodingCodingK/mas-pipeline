@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from datetime import datetime
 
 from sqlalchemy import BigInteger, Boolean, Integer, String, Text, func
-
-if TYPE_CHECKING:
-    from datetime import datetime
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -52,6 +49,20 @@ class Document(Base):
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     parsed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class PipelineRun(Base):
+    __tablename__ = "pipeline_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    session_id: Mapped[int | None] = mapped_column(Integer)
+    run_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    pipeline: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(50), default="pending")
+    started_at: Mapped[datetime | None] = mapped_column()
+    finished_at: Mapped[datetime | None] = mapped_column()
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
 
 
 class Task(Base):
