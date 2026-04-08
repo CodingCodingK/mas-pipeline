@@ -17,23 +17,13 @@ AGENT_DISALLOWED_TOOLS: set[str] = {"spawn_agent"}
 def get_all_tools() -> dict[str, Tool]:
     """Return all built-in tool instances keyed by name.
 
-    Lazy imports for spawn_agent and task tools to avoid circular dependencies.
+    Lazy import for spawn_agent to avoid circular dependencies.
     """
     from src.tools.builtins.spawn_agent import SpawnAgentTool
-    from src.tools.builtins.task import (
-        TaskCreateTool,
-        TaskGetTool,
-        TaskListTool,
-        TaskUpdateTool,
-    )
 
     tools: list[Tool] = [
         ReadFileTool(),
         ShellTool(),
         SpawnAgentTool(),
-        TaskCreateTool(),
-        TaskUpdateTool(),
-        TaskListTool(),
-        TaskGetTool(),
     ]
     return {t.name: t for t in tools}

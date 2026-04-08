@@ -33,6 +33,10 @@ COMPLETED and FAILED are terminal states with no outgoing transitions.
 - **WHEN** create_run(project_id=1) is called
 - **THEN** session_id SHALL be None, pipeline SHALL be None
 
+#### Scenario: Coordinator autonomous mode
+- **WHEN** run_coordinator creates a run for autonomous mode
+- **THEN** pipeline SHALL be None (no pipeline associated)
+
 #### Scenario: Pipeline engine usage
 - **WHEN** the Coordinator or test script creates a run with pipeline="blog_generation" and passes the run_id to execute_pipeline
 - **THEN** the WorkflowRun.pipeline field SHALL match the pipeline name being executed

@@ -282,17 +282,17 @@ async def _run_node(
     from src.agent.factory import create_agent
     from src.agent.loop import agent_loop
     from src.agent.state import ExitReason
-    from src.task.manager import claim_task, complete_task, create_task, fail_task
+    from src.agent.runs import complete_agent_run, create_agent_run, fail_agent_run
     from src.tools.builtins.spawn_agent import extract_final_output
 
-    # Create task record
-    task = await create_task(
-        run_id=run_id_int,
-        subject=f"pipeline:{node.name}",
-        description=task_description[:500],
-    )
+    # Create AgentRun audit record
     agent_id = f"{run_id}:{node.role}"
-    await claim_task(task.id, agent_id)
+    agent_run = await create_agent_run(
+        run_id=run_id_int,
+        role=node.role,
+        description=task_description[:500],
+        owner=agent_id,
+    )
 
     try:
         state = await create_agent(
@@ -306,17 +306,17 @@ async def _run_node(
         output = extract_final_output(state.messages)
 
         if exit_reason == ExitReason.COMPLETED:
-            await complete_task(task.id, output or "(no output)")
+            await complete_agent_run(agent_run.id, output or "(no output)")
         elif exit_reason == ExitReason.MAX_TURNS:
-            await complete_task(task.id, f"[MAX_TURNS] {output}")
+            await complete_agent_run(agent_run.id, f"[MAX_TURNS] {output}")
         else:
-            await fail_task(task.id, f"[{exit_reason.value}] {output}")
+            await fail_agent_run(agent_run.id, f"[{exit_reason.value}] {output}")
             raise RuntimeError(f"Node '{node.name}' exited with {exit_reason.value}")
 
         return output or "(no output)"
 
     except Exception:
-        await fail_task(task.id, f"[ERROR] {__import__('traceback').format_exc()}")
+        await fail_agent_run(agent_run.id, f"[ERROR] {__import__('traceback').format_exc()}")
         raise
 
 

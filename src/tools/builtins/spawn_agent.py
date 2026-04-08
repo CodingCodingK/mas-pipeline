@@ -24,11 +24,25 @@ def extract_final_output(messages: list[dict]) -> str:
     return ""
 
 
+def format_task_notification(
+    agent_run_id: int, role: str, status: str, result: str
+) -> str:
+    """Format a CC-style <task-notification> XML string."""
+    return (
+        f"<task-notification>\n"
+        f"<agent-run-id>{agent_run_id}</agent-run-id>\n"
+        f"<role>{role}</role>\n"
+        f"<status>{status}</status>\n"
+        f"<result>{result}</result>\n"
+        f"</task-notification>"
+    )
+
+
 class SpawnAgentTool(Tool):
     name = "spawn_agent"
     description = (
         "Launch a sub-agent to handle a task asynchronously. "
-        "Returns a task_id immediately. Use task_list / task_get to check status and retrieve results."
+        "Returns immediately. Results arrive as notifications."
     )
     input_schema: dict = {
         "type": "object",
@@ -51,31 +65,33 @@ class SpawnAgentTool(Tool):
     }
 
     async def call(self, params: dict, context: ToolContext) -> ToolResult:
-        from src.task.manager import claim_task, create_task
+        from src.agent.runs import create_agent_run
 
         role: str = params["role"]
         task_description: str = params["task_description"]
         tools_override: list[str] | None = params.get("tools")
 
-        # Resolve run_id to int for task creation
+        # Resolve run_id to int for record creation
         run_id_int = await self._resolve_run_id(context)
 
-        # Create a Task record to track the sub-agent
-        task = await create_task(
-            run_id=run_id_int,
-            subject=f"{role}: {task_description[:100]}",
-            description=task_description,
-        )
-        task_id = task.id
-
-        # Claim the task
+        # Create an AgentRun audit record (directly as running)
         agent_id = f"{context.run_id}:{role}" if context.run_id else role
-        await claim_task(task_id, agent_id)
+        agent_run = await create_agent_run(
+            run_id=run_id_int,
+            role=role,
+            description=task_description[:500],
+            owner=agent_id,
+        )
+        agent_run_id = agent_run.id
+
+        # Increment running counter on parent state (for coordinator_loop)
+        if context.parent_state and context.parent_state.notification_queue is not None:
+            context.parent_state.running_agent_count += 1
 
         # Launch background coroutine
         asyncio.create_task(
             self._run_agent_background(
-                task_id=task_id,
+                agent_run_id=agent_run_id,
                 role=role,
                 task_description=task_description,
                 context=context,
@@ -84,23 +100,26 @@ class SpawnAgentTool(Tool):
         )
 
         return ToolResult(
-            output=f"Sub-agent '{role}' launched (task_id={task_id}). Use task_list or task_get to check status.",
-            metadata={"task_id": task_id, "role": role},
+            output=f"Sub-agent '{role}' launched (agent_run_id={agent_run_id}). Results will arrive as notifications.",
+            metadata={"agent_run_id": agent_run_id, "role": role},
         )
 
     async def _run_agent_background(
         self,
-        task_id: int,
+        agent_run_id: int,
         role: str,
         task_description: str,
         context: ToolContext,
         tools_override: list[str] | None,
     ) -> None:
-        """Background coroutine: run agent loop, then update task."""
+        """Background coroutine: run agent loop, then write record + push notification."""
         from src.agent.factory import create_agent
         from src.agent.loop import agent_loop
+        from src.agent.runs import complete_agent_run, fail_agent_run
         from src.agent.state import ExitReason
-        from src.task.manager import complete_task, fail_task
+
+        status = "failed"
+        result = ""
 
         try:
             state = await create_agent(
@@ -116,17 +135,39 @@ class SpawnAgentTool(Tool):
             output = extract_final_output(state.messages)
 
             if exit_reason == ExitReason.COMPLETED:
-                await complete_task(task_id, output or "(no output)")
+                await complete_agent_run(agent_run_id, output or "(no output)")
+                status = "completed"
+                result = output or "(no output)"
             elif exit_reason == ExitReason.MAX_TURNS:
-                await complete_task(task_id, f"[MAX_TURNS] {output}")
+                await complete_agent_run(agent_run_id, f"[MAX_TURNS] {output}")
+                status = "completed"
+                result = f"[MAX_TURNS] {output}"
             elif exit_reason == ExitReason.ABORT:
-                await fail_task(task_id, f"[ABORT] agent aborted. {output}")
+                await fail_agent_run(agent_run_id, f"[ABORT] agent aborted. {output}")
+                status = "failed"
+                result = f"[ABORT] agent aborted. {output}"
             else:
-                await fail_task(task_id, f"[ERROR] agent failed. {output}")
+                await fail_agent_run(agent_run_id, f"[ERROR] agent failed. {output}")
+                status = "failed"
+                result = f"[ERROR] agent failed. {output}"
 
         except Exception as exc:
-            logger.exception("Sub-agent '%s' (task %d) raised exception", role, task_id)
-            await fail_task(task_id, f"[ERROR] {exc}")
+            logger.exception("Sub-agent '%s' (agent_run %d) raised exception", role, agent_run_id)
+            await fail_agent_run(agent_run_id, f"[ERROR] {exc}")
+            status = "failed"
+            result = f"[ERROR] {exc}"
+
+        # Push notification to parent's queue (CC-style enqueueAgentNotification)
+        if context.parent_state and context.parent_state.notification_queue is not None:
+            notification = {
+                "agent_run_id": agent_run_id,
+                "role": role,
+                "status": status,
+                "result": result,
+                "message": format_task_notification(agent_run_id, role, status, result),
+            }
+            await context.parent_state.notification_queue.put(notification)
+            context.parent_state.running_agent_count -= 1
 
     async def _resolve_run_id(self, context: ToolContext) -> int:
         """Convert context.run_id (str) to workflow_runs.id (int).

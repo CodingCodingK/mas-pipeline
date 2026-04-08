@@ -65,16 +65,15 @@ class WorkflowRun(Base):
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
 
 
-class Task(Base):
-    __tablename__ = "tasks"
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     run_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    subject: Mapped[str] = mapped_column(String(500), nullable=False)
+    role: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(50), default="pending")
+    status: Mapped[str] = mapped_column(String(50), default="running")
     owner: Mapped[str | None] = mapped_column(String(255))
-    blocked_by: Mapped[list[int]] = mapped_column(ARRAY(Integer), default=list)
     result: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

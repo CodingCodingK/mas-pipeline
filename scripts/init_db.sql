@@ -63,23 +63,22 @@ CREATE INDEX idx_runs_status ON workflow_runs(status);
 CREATE INDEX idx_runs_run_id ON workflow_runs(run_id);
 
 -- ============================================================
--- tasks (DAG-based, row-lock for claiming)
+-- agent_runs (audit records for sub-agent executions)
 -- ============================================================
-CREATE TABLE tasks (
+CREATE TABLE agent_runs (
     id          SERIAL PRIMARY KEY,
     run_id      INTEGER NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
-    subject     VARCHAR(500) NOT NULL,
+    role        VARCHAR(255) NOT NULL,
     description TEXT,
-    status      VARCHAR(50) DEFAULT 'pending',
+    status      VARCHAR(50) DEFAULT 'running',
     owner       VARCHAR(255),
-    blocked_by  INTEGER[] DEFAULT '{}',
     result      TEXT,
     metadata    JSONB DEFAULT '{}',
     created_at  TIMESTAMP DEFAULT NOW(),
     updated_at  TIMESTAMP DEFAULT NOW()
 );
-CREATE INDEX idx_tasks_run ON tasks(run_id);
-CREATE INDEX idx_tasks_status ON tasks(status);
+CREATE INDEX idx_agent_runs_run ON agent_runs(run_id);
+CREATE INDEX idx_agent_runs_status ON agent_runs(status);
 
 -- ============================================================
 -- memories (project-scoped)

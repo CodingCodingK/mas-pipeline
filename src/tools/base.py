@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import asyncio
@@ -27,6 +27,9 @@ class ToolContext:
     run_id: str
     project_id: int | None = None
     abort_signal: asyncio.Event | None = None
+    # Reference to parent AgentState (for coordinator notification queue).
+    # TYPE_CHECKING-only import to avoid circular dependency.
+    parent_state: Any = None
 
 
 class Tool(ABC):
