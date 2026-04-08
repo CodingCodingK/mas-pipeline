@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from src.tools.builtins.read_file import ReadFileTool
 from src.tools.builtins.shell import ShellTool
+from src.tools.builtins.web_search import WebSearchTool
 
 if TYPE_CHECKING:
     from src.tools.base import Tool
@@ -25,5 +26,6 @@ def get_all_tools() -> dict[str, Tool]:
         ReadFileTool(),
         ShellTool(),
         SpawnAgentTool(),
+        WebSearchTool(),
     ]
     return {t.name: t for t in tools}

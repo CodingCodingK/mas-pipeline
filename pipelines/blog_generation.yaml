@@ -1,0 +1,17 @@
+pipeline: blog_generation
+description: 博客内容生产管线（调研 → 撰写 → 审校）
+
+nodes:
+  - name: researcher
+    role: researcher
+    output: research
+
+  - name: writer
+    role: writer
+    input: [research]
+    output: draft
+
+  - name: reviewer
+    role: reviewer
+    input: [draft]
+    output: final_post

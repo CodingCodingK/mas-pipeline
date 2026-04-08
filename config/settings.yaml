@@ -27,6 +27,9 @@ providers:
   ollama:
     api_base: http://localhost:11434/v1
 
+tavily:
+  api_key: ${TAVILY_API_KEY}
+
 database:
   postgres_url: postgresql+psycopg://${POSTGRES_USER:mas}:${POSTGRES_PASSWORD:mas_dev_2024}@${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:mas_pipeline}
   redis_url: redis://${REDIS_HOST:localhost}:${REDIS_PORT:6379}/0

@@ -99,6 +99,10 @@ class DefaultUserConfig(BaseModel):
     email: str = ""
 
 
+class TavilyConfig(BaseModel):
+    api_key: str = ""
+
+
 class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8000
@@ -114,6 +118,7 @@ class Settings(BaseModel):
     agent: AgentConfig = AgentConfig()
     compact: CompactConfig = CompactConfig()
     session: SessionConfig = SessionConfig()
+    tavily: TavilyConfig = TavilyConfig()
     server: ServerConfig = ServerConfig()
 
 
