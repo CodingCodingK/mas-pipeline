@@ -19,12 +19,12 @@ from src.task.manager import (
     list_tasks,
 )
 
-# We need a pipeline_run record for the FK. Create one in setup.
+# We need a workflow_run record for the FK. Create one in setup.
 TEST_RUN_ID = None
 
 
 async def setup_test_run() -> int:
-    """Insert a minimal pipeline_run record for FK satisfaction."""
+    """Insert a minimal workflow_run record for FK satisfaction."""
     from src.project.manager import create_project
 
     project = await create_project(user_id=1, name="Task Test Project", pipeline="test")
@@ -36,7 +36,7 @@ async def setup_test_run() -> int:
     async with get_db() as session:
         result = await session.execute(
             text(
-                "INSERT INTO pipeline_runs (project_id, run_id, pipeline, status) "
+                "INSERT INTO workflow_runs (project_id, run_id, pipeline, status) "
                 "VALUES (:pid, :rid, 'test', 'pending') RETURNING id"
             ),
             {"pid": project.id, "rid": f"run-task-test-{project.id}"},

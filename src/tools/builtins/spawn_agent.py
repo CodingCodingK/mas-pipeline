@@ -129,20 +129,20 @@ class SpawnAgentTool(Tool):
             await fail_task(task_id, f"[ERROR] {exc}")
 
     async def _resolve_run_id(self, context: ToolContext) -> int:
-        """Convert context.run_id (str) to pipeline_runs.id (int).
+        """Convert context.run_id (str) to workflow_runs.id (int).
 
-        If context has no run_id, create a minimal pipeline run.
+        If context has no run_id, create a new workflow run.
         """
         from sqlalchemy import select
 
         from src.db import get_db
         from src.engine.run import create_run
-        from src.models import PipelineRun
+        from src.models import WorkflowRun
 
         if context.run_id:
             async with get_db() as session:
                 result = await session.execute(
-                    select(PipelineRun.id).where(PipelineRun.run_id == context.run_id)
+                    select(WorkflowRun.id).where(WorkflowRun.run_id == context.run_id)
                 )
                 row = result.scalar()
                 if row is not None:

@@ -45,9 +45,9 @@ CREATE TABLE user_sessions (
 CREATE INDEX idx_user_sessions_project ON user_sessions(project_id);
 
 -- ============================================================
--- pipeline_runs
+-- workflow_runs (one per pipeline execution instance)
 -- ============================================================
-CREATE TABLE pipeline_runs (
+CREATE TABLE workflow_runs (
     id          SERIAL PRIMARY KEY,
     project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     session_id  INTEGER REFERENCES user_sessions(id),
@@ -58,16 +58,16 @@ CREATE TABLE pipeline_runs (
     finished_at TIMESTAMP,
     metadata    JSONB DEFAULT '{}'
 );
-CREATE INDEX idx_runs_project ON pipeline_runs(project_id);
-CREATE INDEX idx_runs_status ON pipeline_runs(status);
-CREATE INDEX idx_runs_run_id ON pipeline_runs(run_id);
+CREATE INDEX idx_runs_project ON workflow_runs(project_id);
+CREATE INDEX idx_runs_status ON workflow_runs(status);
+CREATE INDEX idx_runs_run_id ON workflow_runs(run_id);
 
 -- ============================================================
 -- tasks (DAG-based, row-lock for claiming)
 -- ============================================================
 CREATE TABLE tasks (
     id          SERIAL PRIMARY KEY,
-    run_id      INTEGER NOT NULL REFERENCES pipeline_runs(id) ON DELETE CASCADE,
+    run_id      INTEGER NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
     subject     VARCHAR(500) NOT NULL,
     description TEXT,
     status      VARCHAR(50) DEFAULT 'pending',
@@ -135,7 +135,7 @@ CREATE INDEX idx_chunks_doc ON document_chunks(doc_id);
 -- ============================================================
 CREATE TABLE agent_sessions (
     id          VARCHAR(255) PRIMARY KEY,
-    run_id      INTEGER REFERENCES pipeline_runs(id) ON DELETE SET NULL,
+    run_id      INTEGER REFERENCES workflow_runs(id) ON DELETE SET NULL,
     agent_role  VARCHAR(255),
     messages    JSONB NOT NULL DEFAULT '[]',
     summary     TEXT,

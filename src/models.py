@@ -51,8 +51,8 @@ class Document(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
-class PipelineRun(Base):
-    __tablename__ = "pipeline_runs"
+class WorkflowRun(Base):
+    __tablename__ = "workflow_runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     project_id: Mapped[int] = mapped_column(Integer, nullable=False)
