@@ -122,6 +122,8 @@ class Settings(BaseModel):
     context_windows: dict[str, int] = {}
     hooks: dict = {}
     permissions: dict = {}
+    mcp_servers: dict = {}
+    mcp_default_access: str = "all"
 
 
 def load_yaml(path: Path) -> dict:

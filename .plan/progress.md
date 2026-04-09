@@ -515,7 +515,16 @@ Main specs 新增/修改（Phase 5 Permission）：
       - Factory 集成: role frontmatter skills 白名单、按需注册 SkillTool
       - 预置 skills: research (fork/web_search) + summarize (inline)
       - 125 项测试 (6 个脚本) 全通过
-    - 5.4 MCP **← 下一步**
+    - ~~5.4 MCP~~ ✅ (pending commit)
+      - JSON-RPC 2.0 消息构建 + MCPTransport ABC (StdioTransport + HTTPTransport)
+      - MCPClient: initialize 握手 + list_tools + call_tool + shutdown 全协议生命周期
+      - MCPTool(Tool): `mcp__server__tool` 三段式命名，call() 转发到 MCPClient
+      - MCPManager: Pipeline 级连接池，asyncio.gather 并发启动，故障隔离
+      - Settings 新增 mcp_servers + mcp_default_access (all/none)
+      - Factory 集成: role frontmatter mcp_servers 白名单 + default_access 逻辑
+      - Pipeline 集成: execute_pipeline 内 MCPManager 生命周期管理 (start→nodes→shutdown)
+      - 91 项测试 (7 个脚本) 全通过
+    - 5.5 Event Bus **← 下一步**
 
 ### Phase 1.3 agent-loop — Design Decisions (explore completed)
 

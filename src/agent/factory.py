@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import asyncio
 
+    from src.mcp.manager import MCPManager
+
 from src.agent.context import build_messages, build_system_prompt, parse_role_file
 from src.agent.state import AgentState
 from src.hooks.config import load_hooks_from_frontmatter, load_hooks_from_settings
@@ -42,6 +44,7 @@ async def create_agent(
     *,
     permission_mode: PermissionMode,
     parent_deny_rules: list[PermissionRule] | None = None,
+    mcp_manager: MCPManager | None = None,
 ) -> AgentState:
     """Create an independent AgentState from a role file.
 
@@ -95,7 +98,20 @@ async def create_agent(
     else:
         checker = PermissionChecker([], permission_mode)
 
-    # 6. Load and filter skills
+    # 6. Register MCP tools (if MCPManager provided)
+    if mcp_manager is not None:
+        mcp_server_names = metadata.get("mcp_servers", None)
+        settings_for_mcp = get_settings()
+        if mcp_server_names is not None:
+            mcp_tools = mcp_manager.get_tools(mcp_server_names)
+        elif settings_for_mcp.mcp_default_access == "all":
+            mcp_tools = mcp_manager.get_tools()
+        else:
+            mcp_tools = []
+        for mcp_tool in mcp_tools:
+            registry.register(mcp_tool)
+
+    # 7. Load and filter skills
     skill_names = metadata.get("skills", [])
     filtered_skills = []
     if skill_names:
@@ -105,13 +121,13 @@ async def create_agent(
             if name not in all_skills:
                 logger.warning("Skill '%s' requested by role '%s' not found, skipping", name, role)
 
-    # 7. Register SkillTool if agent has on-demand skills
+    # 8. Register SkillTool if agent has on-demand skills
     on_demand_skills = {s.name: s for s in filtered_skills if not s.always}
     if on_demand_skills:
         from src.tools.builtins.skill import SkillTool
         registry.register(SkillTool(on_demand_skills))
 
-    # 8. Build orchestrator + context
+    # 9. Build orchestrator + context
     orchestrator = ToolOrchestrator(registry, hook_runner=hook_runner)
     agent_id = f"{run_id}:{role}" if run_id else role
     tool_context = ToolContext(
@@ -123,7 +139,7 @@ async def create_agent(
         permission_checker=checker,
     )
 
-    # 9. Build messages
+    # 10. Build messages
     system_prompt = build_system_prompt(role_body, skill_definitions=filtered_skills)
     messages = build_messages(
         system_prompt=system_prompt,
@@ -131,7 +147,7 @@ async def create_agent(
         user_input=task_description,
     )
 
-    # 10. Assemble state
+    # 11. Assemble state
     return AgentState(
         messages=messages,
         tools=registry,
