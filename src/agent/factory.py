@@ -14,6 +14,10 @@ from src.agent.state import AgentState
 from src.hooks.config import load_hooks_from_frontmatter, load_hooks_from_settings
 from src.hooks.runner import HookRunner
 from src.llm.router import route
+from src.permissions.checker import PermissionChecker
+from src.permissions.hooks import register_permission_hooks
+from src.permissions.rules import load_permission_rules
+from src.permissions.types import PermissionMode, PermissionRule
 from src.project.config import get_settings
 from src.tools.base import ToolContext
 from src.tools.builtins import AGENT_DISALLOWED_TOOLS, get_all_tools
@@ -34,6 +38,9 @@ async def create_agent(
     tools_override: list[str] | None = None,
     max_turns: int = 30,
     abort_signal: asyncio.Event | None = None,
+    *,
+    permission_mode: PermissionMode,
+    parent_deny_rules: list[PermissionRule] | None = None,
 ) -> AgentState:
     """Create an independent AgentState from a role file.
 
@@ -45,6 +52,8 @@ async def create_agent(
         tools_override: If provided, replaces the role file's tool whitelist.
         max_turns: Maximum agent loop iterations.
         abort_signal: Shared cancellation event (parent + child).
+        permission_mode: Required — bypass/normal/strict.
+        parent_deny_rules: Deny rules inherited from parent agent.
 
     Returns:
         A fully configured AgentState ready for agent_loop().
@@ -76,7 +85,16 @@ async def create_agent(
     # 4. Build hook runner (global + role-level hooks)
     hook_runner = _build_hook_runner(metadata)
 
-    # 5. Build orchestrator + context
+    # 5. Build permission checker and register as PreToolUse hook
+    if permission_mode != PermissionMode.BYPASS:
+        settings = get_settings()
+        perm_rules = load_permission_rules(settings.permissions)
+        checker = PermissionChecker(perm_rules, permission_mode, parent_deny_rules)
+        register_permission_hooks(hook_runner, checker)
+    else:
+        checker = PermissionChecker([], permission_mode)
+
+    # 6. Build orchestrator + context
     orchestrator = ToolOrchestrator(registry, hook_runner=hook_runner)
     agent_id = f"{run_id}:{role}" if run_id else role
     tool_context = ToolContext(
@@ -85,9 +103,10 @@ async def create_agent(
         project_id=project_id,
         abort_signal=abort_signal,
         hook_runner=hook_runner,
+        permission_checker=checker,
     )
 
-    # 6. Build messages
+    # 7. Build messages
     system_prompt = build_system_prompt(role_body)
     messages = build_messages(
         system_prompt=system_prompt,
@@ -95,7 +114,7 @@ async def create_agent(
         user_input=task_description,
     )
 
-    # 7. Assemble state
+    # 8. Assemble state
     return AgentState(
         messages=messages,
         tools=registry,

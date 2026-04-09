@@ -1,18 +1,4 @@
-## ADDED Requirements
-
-### Requirement: get_all_tools returns all built-in tool instances
-`get_all_tools()` SHALL return a `dict[str, Tool]` mapping tool name to tool instance for all registered built-in tools.
-
-#### Scenario: Get all tools
-- **WHEN** get_all_tools is called
-- **THEN** it SHALL return a dict containing at least read_file, shell, spawn_agent, task_create, task_update, task_list, task_get
-
-### Requirement: AGENT_DISALLOWED_TOOLS defines tools unavailable to sub-agents
-AGENT_DISALLOWED_TOOLS SHALL be a set containing "spawn_agent" to prevent recursive spawning.
-
-#### Scenario: Sub-agent tool filtering
-- **WHEN** create_agent builds a tool registry for a sub-agent
-- **THEN** spawn_agent SHALL NOT be in the registry, even if the role file lists it
+## MODIFIED Requirements
 
 ### Requirement: create_agent builds an independent AgentState from a role file
 `create_agent(role, task_description, project_id, run_id, tools_override, max_turns, abort_signal, permission_mode, parent_deny_rules)` SHALL parse `agents/{role}.md`, construct an independent AgentState with its own messages, adapter, tools, orchestrator, and permission checker. The `permission_mode` parameter SHALL be required (no default value). The optional `parent_deny_rules` parameter SHALL pass parent deny rules to the PermissionChecker.

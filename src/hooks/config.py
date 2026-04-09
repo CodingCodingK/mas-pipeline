@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from src.hooks.types import HookEventType
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +18,11 @@ logger = logging.getLogger(__name__)
 class HookConfig:
     """Configuration for a single hook execution."""
 
-    type: str           # "command" or "prompt"
-    command: str = ""   # Shell command (for command type)
-    prompt: str = ""    # Prompt template (for prompt type)
-    timeout: int = 30   # Timeout in seconds
+    type: str                           # "command" | "prompt" | "callable"
+    command: str = ""                   # Shell command (for command type)
+    prompt: str = ""                    # Prompt template (for prompt type)
+    callable_fn: Callable[..., Any] | None = None  # Async fn (for callable type)
+    timeout: int = 30                   # Timeout in seconds
 
 
 class HookConfigError(Exception):
@@ -26,12 +31,14 @@ class HookConfigError(Exception):
 
 def validate_hook_config(config: HookConfig) -> None:
     """Validate a hook config, raise HookConfigError if invalid."""
-    if config.type not in ("command", "prompt"):
-        raise HookConfigError(f"Invalid hook type: '{config.type}'. Must be 'command' or 'prompt'.")
+    if config.type not in ("command", "prompt", "callable"):
+        raise HookConfigError(f"Invalid hook type: '{config.type}'. Must be 'command', 'prompt', or 'callable'.")
     if config.type == "command" and not config.command:
         raise HookConfigError("Command hook must have a non-empty 'command' field.")
     if config.type == "prompt" and not config.prompt:
         raise HookConfigError("Prompt hook must have a non-empty 'prompt' field.")
+    if config.type == "callable" and config.callable_fn is None:
+        raise HookConfigError("Callable hook must have a non-None 'callable_fn' field.")
 
 
 def _parse_hook_entry(entry: dict) -> HookConfig:

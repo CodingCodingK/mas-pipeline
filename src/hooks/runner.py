@@ -90,6 +90,18 @@ class HookRunner:
             return await execute_command_hook(event, config)
         if config.type == "prompt":
             return await execute_prompt_hook(event, config)
+        if config.type == "callable" and config.callable_fn is not None:
+            try:
+                return await asyncio.wait_for(
+                    config.callable_fn(event),
+                    timeout=config.timeout,
+                )
+            except TimeoutError:
+                logger.warning("Callable hook timed out after %ds", config.timeout)
+                return HookResult()
+            except Exception:
+                logger.warning("Callable hook raised", exc_info=True)
+                return HookResult()
 
         logger.warning("Unknown hook type: %s", config.type)
         return HookResult()

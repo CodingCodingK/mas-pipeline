@@ -162,12 +162,17 @@ async def execute_pipeline(
     project_id: int,
     user_input: str,
     hook_runner: object | None = None,
+    permission_mode: object | None = None,
 ) -> PipelineResult:
     """Execute a pipeline: load YAML, run nodes with reactive scheduling.
 
     The caller must have already created a WorkflowRun with this run_id.
     """
     from src.engine.run import RunStatus, finish_run, update_run_status
+    from src.permissions.types import PermissionMode
+
+    if permission_mode is None:
+        permission_mode = PermissionMode.NORMAL
 
     # Load pipeline
     yaml_path = str(_PIPELINES_DIR / f"{pipeline_name}.yaml")
@@ -225,6 +230,7 @@ async def execute_pipeline(
                     run_id=run_id,
                     run_id_int=run_id_int,
                     abort_signal=abort_signal,
+                    permission_mode=permission_mode,
                 )
                 running[name] = asyncio.create_task(coro)
                 logger.info("Node '%s' started", name)
@@ -306,6 +312,7 @@ async def _run_node(
     run_id: str,
     run_id_int: int,
     abort_signal: asyncio.Event,
+    permission_mode: object | None = None,
 ) -> str:
     """Execute a single node: create agent, run loop, return output text."""
     from src.agent.factory import create_agent
@@ -330,6 +337,7 @@ async def _run_node(
             project_id=project_id,
             run_id=run_id,
             abort_signal=abort_signal,
+            permission_mode=permission_mode,
         )
         exit_reason = await run_agent_to_completion(state)
         output = extract_final_output(state.messages)

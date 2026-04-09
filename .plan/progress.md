@@ -392,7 +392,7 @@ Specs synced: 1 新增
 |---|------|--------|
 | 5.7 | streaming | ✅ Done |
 | 5.1 | hooks | ✅ Done |
-| 5.2 | permission | 🔲 |
+| 5.2 | permission | ✅ Done |
 | 5.3 | skill | 🔲 |
 | 5.4 | mcp | 🔲 |
 | 5.5 | event-bus | 🔲 |
@@ -462,6 +462,12 @@ Main specs 新增/修改（Phase 5 Hooks）：
 - `openspec/specs/spawn-agent/spec.md`（修改：SubagentStart/End）
 - `openspec/specs/pipeline-execution/spec.md`（修改：PipelineStart/End）
 
+Main specs 新增/修改（Phase 5 Permission）：
+- `openspec/specs/permission-rules/spec.md`（新增）
+- `openspec/specs/permission-integration/spec.md`（新增）
+- `openspec/specs/agent-factory/spec.md`（修改：permission_mode + parent_deny_rules）
+- `openspec/specs/pipeline-execution/spec.md`（修改：permission_mode 参数）
+
 ---
 
 ## Next Steps
@@ -493,7 +499,14 @@ Main specs 新增/修改（Phase 5 Hooks）：
       - 生命周期集成 SubagentStart/End、PipelineStart/End
       - Factory 自动加载 settings.yaml + frontmatter hooks、注入 Orchestrator
       - 160 项测试全通过
-    - 5.2 Permission **← 下一步**
+    - ~~5.2 Permission~~ ✅ (pending commit)
+      - PermissionMode (bypass/normal/strict) + PermissionRule `ToolName(fnmatch)` 语法
+      - check_permission 纯函数 + PermissionChecker 类 + TOOL_CONTENT_FIELD 映射表
+      - 注册为 PreToolUse callable hook、ask fallback deny（Phase 6 接 UI）
+      - SubAgent 继承父级 deny 规则、permission_mode 最外层默认 NORMAL
+      - HookConfig/HookRunner 扩展 callable 执行器类型
+      - 115 项测试 + 77 项回归测试全通过
+    - 5.3 Skill **← 下一步**
 
 ### Phase 1.3 agent-loop — Design Decisions (explore completed)
 

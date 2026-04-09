@@ -130,6 +130,18 @@ class SpawnAgentTool(Tool):
         result = ""
 
         try:
+            # Inherit parent deny rules + permission mode
+            parent_deny_rules = None
+            permission_mode = None
+            if context.permission_checker is not None:
+                parent_deny_rules = context.permission_checker.get_deny_rules()
+                permission_mode = context.permission_checker._mode
+
+            # Lazy import to get default
+            if permission_mode is None:
+                from src.permissions.types import PermissionMode
+                permission_mode = PermissionMode.NORMAL
+
             state = await create_agent(
                 role=role,
                 task_description=task_description,
@@ -137,6 +149,8 @@ class SpawnAgentTool(Tool):
                 run_id=context.run_id,
                 tools_override=tools_override,
                 abort_signal=context.abort_signal,
+                permission_mode=permission_mode,
+                parent_deny_rules=parent_deny_rules,
             )
 
             exit_reason = await run_agent_to_completion(state)

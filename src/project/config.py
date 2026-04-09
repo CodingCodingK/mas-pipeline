@@ -121,6 +121,7 @@ class Settings(BaseModel):
     server: ServerConfig = ServerConfig()
     context_windows: dict[str, int] = {}
     hooks: dict = {}
+    permissions: dict = {}
 
 
 def load_yaml(path: Path) -> dict:

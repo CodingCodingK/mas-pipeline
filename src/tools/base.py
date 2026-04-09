@@ -32,6 +32,8 @@ class ToolContext:
     parent_state: Any = None
     # Hook runner for lifecycle events (SubagentStart/End etc.)
     hook_runner: Any = None
+    # Permission checker for SubAgent deny-rule inheritance
+    permission_checker: Any = None
 
 
 class Tool(ABC):
