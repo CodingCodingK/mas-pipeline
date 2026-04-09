@@ -31,26 +31,26 @@ ExitReason SHALL be a str-based Enum with values: COMPLETED, MAX_TURNS, ABORT, E
 - **THEN** it SHALL equal the string "token_limit"
 
 ### Requirement: ReAct loop drives LLM and tool execution
-agent_loop(state) SHALL implement a while-True loop that: (1) calls state.adapter with state.messages and tool definitions, (2) appends the assistant message, (3) if no tool_calls returns COMPLETED, (4) dispatches tool calls via state.orchestrator, (5) appends tool result messages, (6) increments turn_count and checks max_turns.
+agent_loop(state) SHALL be an AsyncGenerator that yields StreamEvent. It SHALL implement a while-True loop that: (1) calls state.adapter.call_stream() and yields events to the consumer while accumulating the response, (2) appends the accumulated assistant message to state.messages, (3) if no tool_calls, sets state.exit_reason=COMPLETED and returns, (4) dispatches tool calls via state.orchestrator and yields tool_result events, (5) appends tool result messages, (6) increments turn_count and checks max_turns.
 
 #### Scenario: Single-turn completion (no tool calls)
-- **WHEN** LLM returns a response with no tool_calls
-- **THEN** agent_loop appends the assistant message and returns ExitReason.COMPLETED
+- **WHEN** LLM stream yields text deltas and done with no tool calls
+- **THEN** agent_loop yields the text_delta events, appends the assistant message, sets state.exit_reason=COMPLETED, and ends
 
 #### Scenario: Multi-turn with tool calls
-- **WHEN** LLM returns tool_calls, then on next call returns no tool_calls
-- **THEN** agent_loop executes tools, appends results, calls LLM again, and returns COMPLETED after 2 iterations
+- **WHEN** LLM stream yields tool_end, then on next call yields text and done
+- **THEN** agent_loop dispatches tools, yields tool_result events, calls LLM again, yields text events, and sets exit_reason=COMPLETED
 
 #### Scenario: Tool results fed back to LLM
 - **WHEN** orchestrator returns ToolResult for each tool_call
-- **THEN** each result is appended as a tool message with matching tool_call_id before the next LLM call
+- **THEN** each result is appended as a tool message with matching tool_call_id, and a StreamEvent(type="tool_result") is yielded for each
 
 ### Requirement: Max turns exit condition
-agent_loop SHALL increment state.turn_count after each tool execution round and return ExitReason.MAX_TURNS when turn_count reaches max_turns.
+agent_loop SHALL increment state.turn_count after each tool execution round and set state.exit_reason=MAX_TURNS when turn_count reaches max_turns, then end the generator.
 
 #### Scenario: Reaching max turns
 - **WHEN** turn_count reaches max_turns after tool execution
-- **THEN** agent_loop returns ExitReason.MAX_TURNS without calling LLM again
+- **THEN** state.exit_reason SHALL be MAX_TURNS and the generator SHALL end without calling LLM again
 
 #### Scenario: Default max turns is 50
 - **WHEN** AgentState is created without specifying max_turns

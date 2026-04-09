@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
+from collections.abc import AsyncIterator  # noqa: TC003
 
 import httpx
 
 from src.llm.adapter import LLMAdapter, LLMResponse, ToolCallRequest, Usage
 from src.llm.openai_compat import LLMAPIError
+from src.streaming.events import StreamEvent
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +47,139 @@ class AnthropicAdapter(LLMAdapter):
         body = self._build_request(messages, tools, **kwargs)
         data = await self._request(body, kwargs)
         return self._parse_response(data)
+
+    async def call_stream(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        **kwargs,
+    ) -> AsyncIterator[StreamEvent]:
+        body = self._build_request(messages, tools, **kwargs)
+        body["stream"] = True
+
+        headers: dict[str, str] = {}
+        if kwargs.get("thinking"):
+            body["thinking"] = kwargs["thinking"]
+            headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
+
+        # content block accumulator: index -> {type, id, name, arg_chunks}
+        blocks: dict[int, dict] = {}
+        usage_acc = Usage()
+        finish_reason = "stop"
+
+        # Retry before stream starts
+        last_error: Exception | None = None
+        resp_ctx = None
+
+        for attempt in range(_MAX_RETRIES):
+            try:
+                resp_ctx = self._client.stream(
+                    "POST", "/v1/messages", json=body,
+                    headers=headers if headers else None,
+                )
+                resp = await resp_ctx.__aenter__()
+
+                if resp.status_code == 200:
+                    break
+
+                error_body = await resp.aread()
+                await resp_ctx.__aexit__(None, None, None)
+                resp_ctx = None
+
+                if resp.status_code not in _RETRY_STATUS_CODES:
+                    raise LLMAPIError(resp.status_code, error_body.decode())
+
+                last_error = LLMAPIError(resp.status_code, error_body.decode())
+                logger.warning("Anthropic API %d, retry %d/%d", resp.status_code, attempt + 1, _MAX_RETRIES)
+
+            except httpx.HTTPError as exc:
+                if resp_ctx:
+                    with contextlib.suppress(Exception):
+                        await resp_ctx.__aexit__(None, None, None)
+                    resp_ctx = None
+                last_error = exc
+                logger.warning("Anthropic HTTP error: %s, retry %d/%d", exc, attempt + 1, _MAX_RETRIES)
+
+            if attempt < _MAX_RETRIES - 1:
+                delay = _BASE_DELAY * (2**attempt)
+                await asyncio.sleep(delay)
+        else:
+            raise last_error  # type: ignore[misc]
+
+        # Stream is open — parse Anthropic SSE events
+        try:
+            event_type = ""
+            async for line in resp.aiter_lines():
+                if line.startswith("event: "):
+                    event_type = line[7:].strip()
+                    continue
+                if not line.startswith("data: "):
+                    continue
+
+                data = json.loads(line[6:])
+
+                if event_type == "message_start":
+                    u = data.get("message", {}).get("usage", {})
+                    if u:
+                        usage_acc.input_tokens = u.get("input_tokens", 0)
+
+                elif event_type == "content_block_start":
+                    idx = data["index"]
+                    block = data["content_block"]
+                    blocks[idx] = {"type": block["type"]}
+
+                    if block["type"] == "tool_use":
+                        blocks[idx].update({"id": block["id"], "name": block["name"], "arg_chunks": []})
+                        yield StreamEvent(type="tool_start", tool_call_id=block["id"], name=block["name"])
+
+                elif event_type == "content_block_delta":
+                    idx = data["index"]
+                    delta = data["delta"]
+                    delta_type = delta.get("type", "")
+
+                    if delta_type == "text_delta" and delta.get("text"):
+                        yield StreamEvent(type="text_delta", content=delta["text"])
+
+                    elif delta_type == "thinking_delta" and delta.get("thinking"):
+                        yield StreamEvent(type="thinking_delta", content=delta["thinking"])
+
+                    elif delta_type == "input_json_delta":
+                        partial = delta.get("partial_json", "")
+                        if partial:
+                            blocks[idx].setdefault("arg_chunks", []).append(partial)
+                            yield StreamEvent(type="tool_delta", content=partial)
+
+                elif event_type == "content_block_stop":
+                    idx = data["index"]
+                    block = blocks.get(idx, {})
+                    if block.get("type") == "tool_use":
+                        full_args = "".join(block.get("arg_chunks", []))
+                        try:
+                            args = json.loads(full_args) if full_args else {}
+                        except json.JSONDecodeError:
+                            args = {}
+                        yield StreamEvent(
+                            type="tool_end",
+                            tool_call=ToolCallRequest(id=block["id"], name=block["name"], arguments=args),
+                        )
+
+                elif event_type == "message_delta":
+                    delta = data.get("delta", {})
+                    stop_reason = delta.get("stop_reason", "")
+                    finish_reason = "tool_calls" if stop_reason == "tool_use" else "stop"
+                    u = data.get("usage", {})
+                    if u:
+                        usage_acc.output_tokens = u.get("output_tokens", usage_acc.output_tokens)
+
+        except Exception as exc:
+            yield StreamEvent(type="error", content=f"Stream error: {exc}")
+            return
+        finally:
+            if resp_ctx:
+                await resp_ctx.__aexit__(None, None, None)
+
+        yield StreamEvent(type="usage", usage=usage_acc)
+        yield StreamEvent(type="done", finish_reason=finish_reason)
 
     # ── Request construction ────────────────────────────────
 

@@ -114,7 +114,7 @@ class SpawnAgentTool(Tool):
     ) -> None:
         """Background coroutine: run agent loop, then write record + push notification."""
         from src.agent.factory import create_agent
-        from src.agent.loop import agent_loop
+        from src.agent.loop import run_agent_to_completion
         from src.agent.runs import complete_agent_run, fail_agent_run
         from src.agent.state import ExitReason
 
@@ -131,7 +131,7 @@ class SpawnAgentTool(Tool):
                 abort_signal=context.abort_signal,
             )
 
-            exit_reason = await agent_loop(state)
+            exit_reason = await run_agent_to_completion(state)
             output = extract_final_output(state.messages)
 
             if exit_reason == ExitReason.COMPLETED:

@@ -280,9 +280,9 @@ async def _run_node(
 ) -> str:
     """Execute a single node: create agent, run loop, return output text."""
     from src.agent.factory import create_agent
-    from src.agent.loop import agent_loop
-    from src.agent.state import ExitReason
+    from src.agent.loop import run_agent_to_completion
     from src.agent.runs import complete_agent_run, create_agent_run, fail_agent_run
+    from src.agent.state import ExitReason
     from src.tools.builtins.spawn_agent import extract_final_output
 
     # Create AgentRun audit record
@@ -302,7 +302,7 @@ async def _run_node(
             run_id=run_id,
             abort_signal=abort_signal,
         )
-        exit_reason = await agent_loop(state)
+        exit_reason = await run_agent_to_completion(state)
         output = extract_final_output(state.messages)
 
         if exit_reason == ExitReason.COMPLETED:

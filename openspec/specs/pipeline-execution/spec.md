@@ -38,7 +38,7 @@ The engine SHALL maintain three sets: pending (not started), running (in progres
 - **THEN** node C SHALL start as soon as B completes, without waiting for A
 
 ### Requirement: Node execution via create_agent and agent_loop
-Each node SHALL be executed by calling `create_agent(role, task_description, project_id, run_id, abort_signal)` followed by `agent_loop(state)`. The final output SHALL be extracted using `extract_final_output(state.messages)`.
+Each node SHALL be executed by calling `create_agent(role, task_description, project_id, run_id, abort_signal)` followed by `run_agent_to_completion(state)`. The exit reason SHALL be read from `state.exit_reason`. The final output SHALL be extracted using `extract_final_output(state.messages)`.
 
 #### Scenario: Node uses role file
 - **WHEN** a node has role='researcher'

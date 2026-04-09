@@ -7,11 +7,11 @@
 - **WHEN** spawn_agent is called with role="researcher" and task_description="调研 Redis"
 - **THEN** it SHALL:
   1. Create an AgentRun record with role="researcher", status="running", owner="{run_id}:researcher"
-  2. Launch `asyncio.create_task` to run `create_agent` + `agent_loop` in background
+  2. Launch `asyncio.create_task` to run `create_agent` + `run_agent_to_completion` in background
   3. Return ToolResult with output containing the agent_run_id
 
 #### Scenario: Sub-agent completes successfully
-- **WHEN** a spawned sub-agent's agent_loop returns ExitReason.COMPLETED
+- **WHEN** a spawned sub-agent's run_agent_to_completion returns ExitReason.COMPLETED
 - **THEN** the background coroutine SHALL:
   1. Extract the final output text (last assistant message with content, searching backwards)
   2. Call complete_agent_run(agent_run_id, output_text)

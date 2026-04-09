@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
+from collections.abc import AsyncIterator  # noqa: TC003
 
 import httpx
 
 from src.llm.adapter import LLMAdapter, LLMResponse, ToolCallRequest, Usage
+from src.streaming.events import StreamEvent
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,134 @@ class OpenAICompatAdapter(LLMAdapter):
         # Try non-streaming first; fall back to streaming if server requires it
         data = await self._request(body)
         return self._parse_response(data)
+
+    async def call_stream(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        **kwargs,
+    ) -> AsyncIterator[StreamEvent]:
+        body: dict = {"model": self.model, "messages": messages, "stream": True, **kwargs}
+        if tools:
+            body["tools"] = tools
+
+        # tool_call accumulator: index -> {id, name, arg_chunks}
+        tc_acc: dict[int, dict] = {}
+        usage_acc: dict = {}
+        finish_reason = "stop"
+
+        last_error: Exception | None = None
+        resp_ctx = None
+
+        for attempt in range(_MAX_RETRIES):
+            try:
+                resp_ctx = self._client.stream("POST", "/chat/completions", json=body)
+                resp = await resp_ctx.__aenter__()
+
+                if resp.status_code == 200:
+                    break
+
+                # Read error body before closing
+                error_body = await resp.aread()
+                await resp_ctx.__aexit__(None, None, None)
+                resp_ctx = None
+
+                if resp.status_code not in _RETRY_STATUS_CODES:
+                    raise LLMAPIError(resp.status_code, error_body.decode())
+
+                last_error = LLMAPIError(resp.status_code, error_body.decode())
+                logger.warning("LLM API %d, retry %d/%d", resp.status_code, attempt + 1, _MAX_RETRIES)
+
+            except httpx.HTTPError as exc:
+                if resp_ctx:
+                    with contextlib.suppress(Exception):
+                        await resp_ctx.__aexit__(None, None, None)
+                    resp_ctx = None
+                last_error = exc
+                logger.warning("LLM HTTP error: %s, retry %d/%d", exc, attempt + 1, _MAX_RETRIES)
+
+            if attempt < _MAX_RETRIES - 1:
+                delay = _BASE_DELAY * (2**attempt)
+                await asyncio.sleep(delay)
+        else:
+            raise last_error  # type: ignore[misc]
+
+        # Stream is open with status 200 — parse SSE
+        try:
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                payload = line[6:]
+                if payload.strip() == "[DONE]":
+                    break
+
+                chunk = json.loads(payload)
+
+                if chunk.get("usage"):
+                    usage_acc = chunk["usage"]
+
+                choices = chunk.get("choices", [])
+                if not choices:
+                    continue
+
+                delta = choices[0].get("delta", {})
+                fr = choices[0].get("finish_reason")
+                if fr:
+                    finish_reason = fr
+
+                # Text delta
+                if delta.get("content"):
+                    yield StreamEvent(type="text_delta", content=delta["content"])
+
+                # Thinking delta
+                if delta.get("reasoning_content"):
+                    yield StreamEvent(type="thinking_delta", content=delta["reasoning_content"])
+
+                # Tool call deltas
+                for tc in delta.get("tool_calls") or []:
+                    idx = tc["index"]
+                    if idx not in tc_acc:
+                        tc_acc[idx] = {"id": tc.get("id", ""), "name": "", "arg_chunks": []}
+                    entry = tc_acc[idx]
+                    if tc.get("id"):
+                        entry["id"] = tc["id"]
+                    func = tc.get("function", {})
+                    if func.get("name"):
+                        entry["name"] = func["name"]
+                        yield StreamEvent(type="tool_start", tool_call_id=entry["id"], name=entry["name"])
+                    if func.get("arguments"):
+                        entry["arg_chunks"].append(func["arguments"])
+                        yield StreamEvent(type="tool_delta", content=func["arguments"])
+
+        except Exception as exc:
+            yield StreamEvent(type="error", content=f"Stream error: {exc}")
+            return
+        finally:
+            if resp_ctx:
+                await resp_ctx.__aexit__(None, None, None)
+
+        # Emit tool_end events for accumulated tool calls
+        for idx in sorted(tc_acc.keys()):
+            entry = tc_acc[idx]
+            full_args = "".join(entry["arg_chunks"])
+            try:
+                args = json.loads(full_args) if full_args else {}
+            except json.JSONDecodeError:
+                args = {}
+            yield StreamEvent(
+                type="tool_end",
+                tool_call=ToolCallRequest(id=entry["id"], name=entry["name"], arguments=args),
+            )
+
+        yield StreamEvent(
+            type="usage",
+            usage=Usage(
+                input_tokens=usage_acc.get("prompt_tokens", 0),
+                output_tokens=usage_acc.get("completion_tokens", 0),
+                thinking_tokens=usage_acc.get("reasoning_tokens", 0),
+            ),
+        )
+        yield StreamEvent(type="done", finish_reason=finish_reason)
 
     async def _request(self, body: dict) -> dict:
         last_error: Exception | None = None

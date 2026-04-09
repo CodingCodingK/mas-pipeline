@@ -46,3 +46,5 @@ class AgentState:
     notification_queue: asyncio.Queue[dict] | None = None
     # Running agent counter for coordinator_loop exit condition.
     running_agent_count: int = 0
+    # Set by agent_loop generator before ending (replaces return value).
+    exit_reason: ExitReason | None = None

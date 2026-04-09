@@ -27,11 +27,23 @@ The system SHALL normalize all provider-specific token fields into a `Usage` dat
 - **THEN** `Usage.thinking_tokens` reflects the thinking token consumption
 
 ### Requirement: LLMAdapter defines async call interface
-The system SHALL define an abstract base class `LLMAdapter` with a single async method `call(messages, tools=None, **kwargs) -> LLMResponse`.
+The system SHALL define an abstract base class `LLMAdapter` with two async methods:
+- `call(messages, tools=None, **kwargs) -> LLMResponse` (existing, unchanged)
+- `call_stream(messages, tools=None, **kwargs) -> AsyncIterator[StreamEvent]` (new)
+
+Both methods SHALL be abstract. Subclasses MUST implement both.
 
 #### Scenario: Subclass must implement call
 - **WHEN** a subclass of `LLMAdapter` does not implement `call()`
 - **THEN** instantiation raises `TypeError`
+
+#### Scenario: Subclass must implement call_stream
+- **WHEN** a subclass of `LLMAdapter` does not implement `call_stream()`
+- **THEN** instantiation raises `TypeError`
+
+#### Scenario: call() behavior unchanged
+- **WHEN** `call()` is invoked
+- **THEN** it SHALL return a complete `LLMResponse` object, identical to pre-streaming behavior
 
 ### Requirement: OpenAI-compatible adapter handles multiple providers
 The system SHALL implement `OpenAICompatAdapter` that works with any provider using OpenAI-compatible API format (OpenAI, DeepSeek, Ollama, Gemini).

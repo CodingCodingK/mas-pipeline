@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: coordinator_loop wraps agent_loop with outer do-while
-`coordinator_loop(state: AgentState) -> ExitReason` SHALL wrap agent_loop in an outer loop that waits for sub-agent notifications after each agent_loop exit.
+`coordinator_loop(state: AgentState)` SHALL be an async generator that yields `StreamEvent`. It SHALL wrap agent_loop in an outer loop: yield all events from agent_loop, then check running_agent_count. It SHALL set `state.exit_reason` before ending.
 
 #### Scenario: No running agents after agent_loop
 - **WHEN** agent_loop exits with COMPLETED

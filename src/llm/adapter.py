@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from src.streaming.events import StreamEvent
 
 
 @dataclass
@@ -46,3 +52,12 @@ class LLMAdapter(ABC):
         **kwargs,
     ) -> LLMResponse:
         """Call the LLM and return a standardized response."""
+
+    @abstractmethod
+    def call_stream(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        **kwargs,
+    ) -> AsyncIterator[StreamEvent]:
+        """Stream the LLM response as unified StreamEvent objects."""
