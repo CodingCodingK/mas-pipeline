@@ -5,8 +5,12 @@ from __future__ import annotations
 import platform
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
+
+if TYPE_CHECKING:
+    from src.skills.types import SkillDefinition
 
 
 def parse_role_file(path: str) -> tuple[dict, str]:
@@ -28,16 +32,14 @@ def build_system_prompt(
     role_body: str,
     project_root: str | None = None,
     memory_context: str | None = None,
+    skill_definitions: list[SkillDefinition] | None = None,
 ) -> str:
-    """Build system prompt by concatenating layers: identity, role, memory, skill.
-
-    Skill layer is Phase 5 placeholder (returns None, skipped).
-    """
+    """Build system prompt by concatenating layers: identity, role, memory, skill."""
     layers: list[str | None] = [
         _identity_layer(project_root),
         _role_layer(role_body),
         _memory_layer(memory_context),
-        _skill_layer(),
+        _skill_layer(skill_definitions),
     ]
     return "\n\n".join(layer for layer in layers if layer)
 
@@ -90,6 +92,40 @@ def _memory_layer(memory_context: str | None = None) -> str | None:
     return None
 
 
-def _skill_layer() -> str | None:
-    """Phase 5: return skill summaries available to this agent."""
-    return None
+def _skill_layer(skills: list[SkillDefinition] | None = None) -> str | None:
+    """Return skill content for the system prompt.
+
+    - always=True skills: full content injected.
+    - always=False skills: XML summary for LLM discovery via SkillTool.
+    """
+    if not skills:
+        return None
+
+    parts: list[str] = []
+
+    # Always-on skills: inject full content
+    always_skills = [s for s in skills if s.always]
+    if always_skills:
+        parts.append("# Always-On Skills")
+        for s in always_skills:
+            parts.append(s.content)
+
+    # On-demand skills: XML summary
+    on_demand = [s for s in skills if not s.always]
+    if on_demand:
+        lines = ["# Available Skills", "<skills>"]
+        for s in on_demand:
+            lines.append(f'  <skill name="{s.name}">')
+            if s.description:
+                lines.append(f"    <description>{s.description}</description>")
+            if s.when_to_use:
+                lines.append(f"    <when-to-use>{s.when_to_use}</when-to-use>")
+            if s.arguments:
+                lines.append(f"    <arguments>{s.arguments}</arguments>")
+            lines.append("  </skill>")
+        lines.append("</skills>")
+        lines.append("")
+        lines.append('Use the `skill` tool to invoke a skill when it matches your current task.')
+        parts.append("\n".join(lines))
+
+    return "\n\n".join(parts) if parts else None

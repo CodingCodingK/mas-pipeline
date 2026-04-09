@@ -393,7 +393,7 @@ Specs synced: 1 新增
 | 5.7 | streaming | ✅ Done |
 | 5.1 | hooks | ✅ Done |
 | 5.2 | permission | ✅ Done |
-| 5.3 | skill | 🔲 |
+| 5.3 | skill | ✅ Done |
 | 5.4 | mcp | 🔲 |
 | 5.5 | event-bus | 🔲 |
 | 5.6 | langgraph | 🔲 |
@@ -506,7 +506,16 @@ Main specs 新增/修改（Phase 5 Permission）：
       - SubAgent 继承父级 deny 规则、permission_mode 最外层默认 NORMAL
       - HookConfig/HookRunner 扩展 callable 执行器类型
       - 115 项测试 + 77 项回归测试全通过
-    - 5.3 Skill **← 下一步**
+    - ~~5.3 Skill~~ ✅ (pending commit)
+      - SkillDefinition + SkillResult 数据类型、skills/*.md 文件加载解析
+      - substitute_variables ($ARGUMENTS/${PROJECT_ID}/${AGENT_ID}/${SKILL_DIR})
+      - execute_inline (变量替换返回 SkillResult) + execute_fork (spawn 隔离子 agent)
+      - SkillTool: 每 agent 实例、input {skill_name, args}、inline/fork 分发
+      - _skill_layer: always=true 全文注入 + always=false XML 摘要
+      - Factory 集成: role frontmatter skills 白名单、按需注册 SkillTool
+      - 预置 skills: research (fork/web_search) + summarize (inline)
+      - 125 项测试 (6 个脚本) 全通过
+    - 5.4 MCP **← 下一步**
 
 ### Phase 1.3 agent-loop — Design Decisions (explore completed)
 

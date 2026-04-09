@@ -19,6 +19,7 @@ from src.permissions.hooks import register_permission_hooks
 from src.permissions.rules import load_permission_rules
 from src.permissions.types import PermissionMode, PermissionRule
 from src.project.config import get_settings
+from src.skills.loader import load_skills
 from src.tools.base import ToolContext
 from src.tools.builtins import AGENT_DISALLOWED_TOOLS, get_all_tools
 from src.tools.orchestrator import ToolOrchestrator
@@ -94,7 +95,23 @@ async def create_agent(
     else:
         checker = PermissionChecker([], permission_mode)
 
-    # 6. Build orchestrator + context
+    # 6. Load and filter skills
+    skill_names = metadata.get("skills", [])
+    filtered_skills = []
+    if skill_names:
+        all_skills = load_skills()
+        filtered_skills = [all_skills[n] for n in skill_names if n in all_skills]
+        for name in skill_names:
+            if name not in all_skills:
+                logger.warning("Skill '%s' requested by role '%s' not found, skipping", name, role)
+
+    # 7. Register SkillTool if agent has on-demand skills
+    on_demand_skills = {s.name: s for s in filtered_skills if not s.always}
+    if on_demand_skills:
+        from src.tools.builtins.skill import SkillTool
+        registry.register(SkillTool(on_demand_skills))
+
+    # 8. Build orchestrator + context
     orchestrator = ToolOrchestrator(registry, hook_runner=hook_runner)
     agent_id = f"{run_id}:{role}" if run_id else role
     tool_context = ToolContext(
@@ -106,15 +123,15 @@ async def create_agent(
         permission_checker=checker,
     )
 
-    # 7. Build messages
-    system_prompt = build_system_prompt(role_body)
+    # 9. Build messages
+    system_prompt = build_system_prompt(role_body, skill_definitions=filtered_skills)
     messages = build_messages(
         system_prompt=system_prompt,
         history=[],
         user_input=task_description,
     )
 
-    # 8. Assemble state
+    # 10. Assemble state
     return AgentState(
         messages=messages,
         tools=registry,
