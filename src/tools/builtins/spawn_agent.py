@@ -88,6 +88,14 @@ class SpawnAgentTool(Tool):
         if context.parent_state and context.parent_state.notification_queue is not None:
             context.parent_state.running_agent_count += 1
 
+        # Fire SubagentStart hook
+        await self._fire_hook(context, "subagent_start", {
+            "agent_run_id": agent_run_id,
+            "role": role,
+            "task_description": task_description,
+            "parent_run_id": context.run_id,
+        })
+
         # Launch background coroutine
         asyncio.create_task(
             self._run_agent_background(
@@ -168,6 +176,30 @@ class SpawnAgentTool(Tool):
             }
             await context.parent_state.notification_queue.put(notification)
             context.parent_state.running_agent_count -= 1
+
+        # Fire SubagentEnd hook
+        await self._fire_hook(context, "subagent_end", {
+            "agent_run_id": agent_run_id,
+            "role": role,
+            "status": status,
+            "result": result,
+            "parent_run_id": context.run_id,
+        })
+
+    @staticmethod
+    async def _fire_hook(context: ToolContext, event_name: str, payload: dict) -> None:
+        """Fire a lifecycle hook if hook_runner is available."""
+        if not context.hook_runner:
+            return
+        try:
+            from src.hooks.types import HookEvent, HookEventType
+            event = HookEvent(
+                event_type=HookEventType(event_name),
+                payload=payload,
+            )
+            await context.hook_runner.run(event)
+        except Exception:
+            logger.warning("Hook %s failed (non-blocking)", event_name, exc_info=True)
 
     async def _resolve_run_id(self, context: ToolContext) -> int:
         """Convert context.run_id (str) to workflow_runs.id (int).

@@ -11,7 +11,10 @@ if TYPE_CHECKING:
 
 from src.agent.context import build_messages, build_system_prompt, parse_role_file
 from src.agent.state import AgentState
+from src.hooks.config import load_hooks_from_frontmatter, load_hooks_from_settings
+from src.hooks.runner import HookRunner
 from src.llm.router import route
+from src.project.config import get_settings
 from src.tools.base import ToolContext
 from src.tools.builtins import AGENT_DISALLOWED_TOOLS, get_all_tools
 from src.tools.orchestrator import ToolOrchestrator
@@ -70,17 +73,21 @@ async def create_agent(
         else:
             logger.warning("Tool '%s' requested by role '%s' not found, skipping", name, role)
 
-    # 4. Build orchestrator + context
-    orchestrator = ToolOrchestrator(registry)
+    # 4. Build hook runner (global + role-level hooks)
+    hook_runner = _build_hook_runner(metadata)
+
+    # 5. Build orchestrator + context
+    orchestrator = ToolOrchestrator(registry, hook_runner=hook_runner)
     agent_id = f"{run_id}:{role}" if run_id else role
     tool_context = ToolContext(
         agent_id=agent_id,
         run_id=run_id,
         project_id=project_id,
         abort_signal=abort_signal,
+        hook_runner=hook_runner,
     )
 
-    # 5. Build messages
+    # 6. Build messages
     system_prompt = build_system_prompt(role_body)
     messages = build_messages(
         system_prompt=system_prompt,
@@ -88,7 +95,7 @@ async def create_agent(
         user_input=task_description,
     )
 
-    # 6. Assemble state
+    # 7. Assemble state
     return AgentState(
         messages=messages,
         tools=registry,
@@ -97,3 +104,21 @@ async def create_agent(
         tool_context=tool_context,
         max_turns=max_turns,
     )
+
+
+def _build_hook_runner(metadata: dict) -> HookRunner:
+    """Build a HookRunner with global hooks from settings + role hooks from frontmatter."""
+    runner = HookRunner()
+
+    # Load global hooks from settings.yaml
+    settings = get_settings()
+    for event_type, matcher, config in load_hooks_from_settings(settings.hooks):
+        runner.register(event_type, config, matcher=matcher)
+
+    # Load role-specific hooks from frontmatter
+    frontmatter_hooks = metadata.get("hooks", {})
+    if frontmatter_hooks:
+        for event_type, matcher, config in load_hooks_from_frontmatter(frontmatter_hooks):
+            runner.register(event_type, config, matcher=matcher)
+
+    return runner

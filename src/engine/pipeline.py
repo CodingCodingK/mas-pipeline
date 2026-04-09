@@ -144,11 +144,24 @@ class PipelineResult:
 # ── Execution ─────────────────────────────────────────────
 
 
+async def _fire_pipeline_hook(hook_runner: object | None, event_name: str, payload: dict) -> None:
+    """Fire a pipeline lifecycle hook if hook_runner is available."""
+    if not hook_runner:
+        return
+    try:
+        from src.hooks.types import HookEvent, HookEventType
+        event = HookEvent(event_type=HookEventType(event_name), payload=payload)
+        await hook_runner.run(event)  # type: ignore[union-attr]
+    except Exception:
+        logger.warning("Pipeline hook %s failed (non-blocking)", event_name, exc_info=True)
+
+
 async def execute_pipeline(
     pipeline_name: str,
     run_id: str,
     project_id: int,
     user_input: str,
+    hook_runner: object | None = None,
 ) -> PipelineResult:
     """Execute a pipeline: load YAML, run nodes with reactive scheduling.
 
@@ -159,6 +172,14 @@ async def execute_pipeline(
     # Load pipeline
     yaml_path = str(_PIPELINES_DIR / f"{pipeline_name}.yaml")
     pipeline = load_pipeline(yaml_path)
+
+    # Fire PipelineStart hook
+    await _fire_pipeline_hook(hook_runner, "pipeline_start", {
+        "pipeline_name": pipeline_name,
+        "run_id": run_id,
+        "project_id": project_id,
+        "user_input": user_input,
+    })
 
     # Transition run: pending → running
     await update_run_status(run_id, RunStatus.RUNNING)
@@ -256,6 +277,14 @@ async def execute_pipeline(
         if out_name in node_outputs:
             final_output = node_outputs[out_name]
             break
+
+    # Fire PipelineEnd hook
+    await _fire_pipeline_hook(hook_runner, "pipeline_end", {
+        "pipeline_name": pipeline_name,
+        "run_id": run_id,
+        "status": status,
+        "error": failed_error,
+    })
 
     return PipelineResult(
         run_id=run_id,

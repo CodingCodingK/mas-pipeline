@@ -11,6 +11,7 @@ from src.tools.base import Tool, ToolContext, ToolResult
 from src.tools.params import cast_params, validate_params
 
 if TYPE_CHECKING:
+    from src.hooks.runner import HookRunner
     from src.llm.adapter import ToolCallRequest
     from src.tools.registry import ToolRegistry
 
@@ -60,8 +61,9 @@ def partition_tool_calls(
 class ToolOrchestrator:
     """Dispatches tool calls with concurrency control."""
 
-    def __init__(self, registry: ToolRegistry) -> None:
+    def __init__(self, registry: ToolRegistry, hook_runner: HookRunner | None = None) -> None:
         self.registry = registry
+        self.hook_runner = hook_runner
 
     async def dispatch(
         self,
@@ -120,11 +122,73 @@ class ToolOrchestrator:
             )
             return ToolResult(output=msg, success=False)
 
+        # --- PreToolUse hooks ---
+        if self.hook_runner:
+            from src.hooks.types import HookEvent, HookEventType
+
+            pre_event = HookEvent(
+                event_type=HookEventType.PRE_TOOL_USE,
+                payload={
+                    "tool_name": tc.name,
+                    "tool_input": params,
+                    "agent_id": context.agent_id,
+                    "run_id": context.run_id,
+                },
+            )
+            pre_result = await self.hook_runner.run(pre_event)
+
+            if pre_result.action == "deny":
+                return ToolResult(
+                    output=f"Hook denied: {pre_result.reason}",
+                    success=False,
+                )
+            if pre_result.action == "modify" and pre_result.updated_input is not None:
+                params = pre_result.updated_input
+
+        # --- Execute tool ---
         try:
-            return await tool.call(params, context)
+            result = await tool.call(params, context)
         except Exception as exc:
             logger.exception("Tool '%s' raised an exception", tc.name)
-            return ToolResult(
+            result = ToolResult(
                 output=f"Error executing '{tc.name}': {exc}",
                 success=False,
             )
+
+        # --- PostToolUse / PostToolUseFailure hooks ---
+        if self.hook_runner:
+            from src.hooks.types import HookEvent, HookEventType
+
+            if result.success:
+                post_event = HookEvent(
+                    event_type=HookEventType.POST_TOOL_USE,
+                    payload={
+                        "tool_name": tc.name,
+                        "tool_input": params,
+                        "tool_output": result.output,
+                        "success": True,
+                        "agent_id": context.agent_id,
+                        "run_id": context.run_id,
+                    },
+                )
+            else:
+                post_event = HookEvent(
+                    event_type=HookEventType.POST_TOOL_USE_FAILURE,
+                    payload={
+                        "tool_name": tc.name,
+                        "tool_input": params,
+                        "error": result.output,
+                        "agent_id": context.agent_id,
+                        "run_id": context.run_id,
+                    },
+                )
+            post_result = await self.hook_runner.run(post_event)
+
+            if post_result.additional_context:
+                result = ToolResult(
+                    output=result.output + "\n\n" + post_result.additional_context,
+                    success=result.success,
+                    metadata=result.metadata,
+                )
+
+        return result

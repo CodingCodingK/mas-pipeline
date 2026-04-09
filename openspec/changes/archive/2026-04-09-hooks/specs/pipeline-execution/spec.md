@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: execute_pipeline function signature
 `execute_pipeline(pipeline_name: str, run_id: str, project_id: int, user_input: str) -> PipelineResult` SHALL load the pipeline YAML, execute all nodes, and return results. The function SHALL NOT create a WorkflowRun — the caller provides a valid run_id. It SHALL fire PipelineStart hook at the beginning and PipelineEnd hook at the end.
@@ -15,20 +15,24 @@
 - **WHEN** execute_pipeline is called
 - **THEN** a PipelineStart hook event SHALL fire with payload containing pipeline_name, run_id, project_id, user_input before any node execution begins
 
-#### Scenario: PipelineEnd hook fires on completion
-- **WHEN** pipeline execution finishes (success or failure)
-- **THEN** a PipelineEnd hook event SHALL fire with payload containing pipeline_name, run_id, status, error
+#### Scenario: PipelineEnd hook fires on success
+- **WHEN** all nodes complete successfully
+- **THEN** a PipelineEnd hook event SHALL fire with payload containing pipeline_name, run_id, status="completed", error=None
+
+#### Scenario: PipelineEnd hook fires on failure
+- **WHEN** any node fails
+- **THEN** a PipelineEnd hook event SHALL fire with payload containing pipeline_name, run_id, status="failed", error=<error message>
 
 ### Requirement: WorkflowRun status updates during execution
-execute_pipeline SHALL update the WorkflowRun status: pending→running at start, running→completed or running→failed at end, using the existing `update_run_status` and `finish_run` functions.
+execute_pipeline SHALL update the WorkflowRun status: pending->running at start, running->completed or running->failed at end, using the existing `update_run_status` and `finish_run` functions.
 
 #### Scenario: Status progression on success
 - **WHEN** all nodes complete successfully
-- **THEN** the WorkflowRun SHALL transition pending→running→completed with finished_at set
+- **THEN** the WorkflowRun SHALL transition pending->running->completed with finished_at set
 
 #### Scenario: Status progression on failure
 - **WHEN** any node fails
-- **THEN** the WorkflowRun SHALL transition pending→running→failed with finished_at set
+- **THEN** the WorkflowRun SHALL transition pending->running->failed with finished_at set
 
 ### Requirement: Reactive scheduling — ready nodes start immediately
 The engine SHALL maintain three sets: pending (not started), running (in progress), completed (done). When a node's all input names exist in node_outputs, it SHALL be started immediately via asyncio.create_task. The engine SHALL use asyncio.wait(return_when=FIRST_COMPLETED) to wait for any running node to finish.

@@ -30,6 +30,8 @@ class ToolContext:
     # Reference to parent AgentState (for coordinator notification queue).
     # TYPE_CHECKING-only import to avoid circular dependency.
     parent_state: Any = None
+    # Hook runner for lifecycle events (SubagentStart/End etc.)
+    hook_runner: Any = None
 
 
 class Tool(ABC):
