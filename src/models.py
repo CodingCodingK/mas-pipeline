@@ -131,6 +131,21 @@ class DocumentChunk(Base):
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
 
 
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_key: Mapped[str] = mapped_column(String(500), unique=True, nullable=False)
+    channel: Mapped[str] = mapped_column(String(50), nullable=False)
+    chat_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    conversation_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
+    status: Mapped[str] = mapped_column(String(50), default="active")
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    last_active_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
 class CompactSummary(Base):
     __tablename__ = "compact_summaries"
 

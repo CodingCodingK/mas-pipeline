@@ -394,8 +394,8 @@ Specs synced: 1 新增
 | 5.1 | hooks | ✅ Done |
 | 5.2 | permission | ✅ Done |
 | 5.3 | skill | ✅ Done |
-| 5.4 | mcp | 🔲 |
-| 5.5 | event-bus | 🔲 |
+| 5.4 | mcp | ✅ Done |
+| 5.5 | claw (channel-layer) | ✅ Done |
 | 5.6 | langgraph | 🔲 |
 | 5.8 | sandbox | 🔲 |
 
@@ -524,7 +524,17 @@ Main specs 新增/修改（Phase 5 Permission）：
       - Factory 集成: role frontmatter mcp_servers 白名单 + default_access 逻辑
       - Pipeline 集成: execute_pipeline 内 MCPManager 生命周期管理 (start→nodes→shutdown)
       - 91 项测试 (7 个脚本) 全通过
-    - 5.5 Event Bus **← 下一步**
+    - ~~5.5 Claw (Channel Layer)~~ ✅
+      - 原 Event Bus，重定义为外部通讯平台集成（见 `.plan/claw_design_notes.md`）
+      - MessageBus: 两个 asyncio.Queue (inbound + outbound)，非 pub-sub
+      - BaseChannel ABC + ChannelManager: 统一适配器接口，延迟注册，容错启停
+      - Discord: WebSocket Gateway (HELLO→IDENTIFY→DISPATCH) + REST 发送 + 2000 字符分割 + 429 限流重试
+      - QQ: qq-botpy SDK，C2C 私聊 + 群聊 @，OrderedDict LRU 消息去重
+      - WeChat: ilinkai HTTP 长轮询，context_token 缓存，token 持久化，4000 字符分割
+      - Gateway: per-message agent_loop dispatch，per-session asyncio.Lock 串行，cross-session 并发
+      - ChatSession 模型 + Redis 热缓存 + PG 持久化，复用 Conversation 表
+      - CLI 入口 + SIGINT/SIGTERM 优雅停机
+      - 242 项测试 (9 个脚本) 全通过
 
 ### Phase 1.3 agent-loop — Design Decisions (explore completed)
 

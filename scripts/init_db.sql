@@ -157,6 +157,24 @@ CREATE TABLE compact_summaries (
 CREATE INDEX idx_compact_session ON compact_summaries(session_id);
 
 -- ============================================================
+-- chat_sessions
+-- ============================================================
+CREATE TABLE chat_sessions (
+    id              SERIAL PRIMARY KEY,
+    session_key     VARCHAR(500) UNIQUE NOT NULL,
+    channel         VARCHAR(50) NOT NULL,
+    chat_id         VARCHAR(255) NOT NULL,
+    project_id      INTEGER NOT NULL REFERENCES projects(id),
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id),
+    metadata        JSONB DEFAULT '{}',
+    status          VARCHAR(50) DEFAULT 'active',
+    created_at      TIMESTAMP DEFAULT NOW(),
+    last_active_at  TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX idx_chat_sessions_channel ON chat_sessions(channel);
+CREATE INDEX idx_chat_sessions_project ON chat_sessions(project_id);
+
+-- ============================================================
 -- telemetry_events
 -- ============================================================
 CREATE TABLE telemetry_events (

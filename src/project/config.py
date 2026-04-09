@@ -102,6 +102,16 @@ class TavilyConfig(BaseModel):
     api_key: str = ""
 
 
+class ChannelsConfig(BaseModel):
+    project_id: int = 1
+    role: str = "assistant"
+    max_history: int = 50
+    session_ttl_hours: int = 24
+    discord: dict = {}
+    qq: dict = {}
+    wechat: dict = {}
+
+
 class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8000
@@ -124,6 +134,7 @@ class Settings(BaseModel):
     permissions: dict = {}
     mcp_servers: dict = {}
     mcp_default_access: str = "all"
+    channels: ChannelsConfig = ChannelsConfig()
 
 
 def load_yaml(path: Path) -> dict:
