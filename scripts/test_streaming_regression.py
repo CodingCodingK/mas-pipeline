@@ -1,8 +1,7 @@
 """Regression tests for streaming-adapted callers.
 
 Tests 9.1 through 9.3 from the streaming tasks.
-Verifies spawn_agent, pipeline engine, and coordinator work
-with run_agent_to_completion / coordinator_loop AsyncGenerator.
+Verifies spawn_agent and pipeline engine work with run_agent_to_completion.
 """
 from __future__ import annotations
 
@@ -84,46 +83,60 @@ def test_spawn_agent_regression():
     tool = SpawnAgentTool()
     adapter = make_simple_adapter()
 
-    notification_queue: asyncio.Queue = asyncio.Queue()
-    parent_state = MagicMock()
-    parent_state.notification_queue = notification_queue
-    parent_state.running_agent_count = 0
+    persisted: list[tuple[int, dict]] = []
+
+    async def fake_append_message(conv_id: int, message: dict) -> None:
+        persisted.append((conv_id, message))
 
     context = ToolContext(
         agent_id="parent",
         run_id="run-1",
         project_id=1,
         abort_signal=None,
-        parent_state=parent_state,
+        session_id=77,
+        conversation_id=88,
     )
 
     async def run():
-        # Mock create_agent to return a state with our adapter
         test_state = make_state_with_adapter(adapter)
 
-        with patch("src.tools.builtins.spawn_agent.SpawnAgentTool._resolve_run_id", new_callable=AsyncMock, return_value=1):
-            with patch("src.agent.runs.create_agent_run", new_callable=AsyncMock) as mock_create:
-                mock_run = MagicMock()
-                mock_run.id = 42
-                mock_create.return_value = mock_run
+        with patch("src.tools.builtins.spawn_agent.SpawnAgentTool._resolve_run_id", new_callable=AsyncMock, return_value=1), \
+             patch("src.agent.runs.create_agent_run", new_callable=AsyncMock) as mock_create, \
+             patch("src.agent.factory.create_agent", new_callable=AsyncMock, return_value=test_state), \
+             patch("src.agent.runs.complete_agent_run", new_callable=AsyncMock), \
+             patch("src.session.manager.append_message", new=fake_append_message), \
+             patch("src.tools.builtins.spawn_agent.SpawnAgentTool._notify_session_wakeup", new_callable=AsyncMock), \
+             patch("src.engine.session_registry.get_runner", return_value=None):
+            mock_run = MagicMock()
+            mock_run.id = 42
+            mock_create.return_value = mock_run
 
-                with patch("src.agent.factory.create_agent", new_callable=AsyncMock, return_value=test_state):
-                    with patch("src.agent.runs.complete_agent_run", new_callable=AsyncMock):
-                        result = await tool.call(
-                            {"role": "researcher", "task_description": "find stuff"},
-                            context,
-                        )
+            result = await tool.call(
+                {"role": "researcher", "task_description": "find stuff"},
+                context,
+            )
 
-                        check("spawn returns immediately", "agent_run_id=42" in result.output)
-                        check("running_agent_count incremented", parent_state.running_agent_count == 1)
+            check("spawn returns immediately", "agent_run_id=42" in result.output)
 
-                        # Wait for background task
-                        await asyncio.sleep(0.5)
+            # Wait for background task
+            await asyncio.sleep(0.5)
 
-                        check("notification pushed", not notification_queue.empty())
-                        notification = await notification_queue.get()
-                        check("notification has role", notification["role"] == "researcher")
-                        check("notification status completed", notification["status"] == "completed")
+            check("notification persisted", len(persisted) == 1)
+            if persisted:
+                conv_id, msg = persisted[0]
+                check("persisted to parent conversation", conv_id == 88)
+                check(
+                    "notification message is task_notification",
+                    msg.get("metadata", {}).get("kind") == "task_notification",
+                )
+                check(
+                    "notification metadata has role",
+                    msg.get("metadata", {}).get("sub_agent_role") == "researcher",
+                )
+                check(
+                    "notification metadata has completed status",
+                    msg.get("metadata", {}).get("status") == "completed",
+                )
 
     asyncio.run(run())
 
@@ -157,49 +170,12 @@ def test_pipeline_regression():
     check("pipeline does not call agent_loop directly", "await agent_loop(" not in source)
 
 
-# ── 9.3 coordinator regression ──────────────────────────────
-
-
-def test_coordinator_regression():
-    print("\n=== 9.3 coordinator regression test ===")
-
-    from src.engine.coordinator import coordinator_loop, run_coordinator_to_completion
-
-    adapter = make_simple_adapter()
-    state = make_state_with_adapter(adapter)
-
-    # Test coordinator_loop as AsyncGenerator
-    events: list[StreamEvent] = []
-
-    async def run_generator():
-        async for ev in coordinator_loop(state):
-            events.append(ev)
-
-    asyncio.run(run_generator())
-
-    check("coordinator_loop yields events", len(events) > 0)
-    check("has text_delta from coordinator", any(e.type == "text_delta" for e in events))
-    check("state.exit_reason set", state.exit_reason == ExitReason.COMPLETED)
-    check("notification_queue initialized", state.notification_queue is not None)
-
-    # Test run_coordinator_to_completion
-    state2 = make_state_with_adapter(make_simple_adapter())
-
-    async def run_helper():
-        result = await run_coordinator_to_completion(state2)
-        return result
-
-    result = asyncio.run(run_helper())
-    check("run_coordinator_to_completion returns ExitReason", result == ExitReason.COMPLETED)
-
-
 # ── Run all ──────────────────────────────────────────────────
 
 
 if __name__ == "__main__":
     test_spawn_agent_regression()
     test_pipeline_regression()
-    test_coordinator_regression()
 
     print(f"\n{'='*50}")
     print(f"Results: {passed} passed, {failed} failed out of {passed + failed}")

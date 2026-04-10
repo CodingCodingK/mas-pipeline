@@ -1,6 +1,5 @@
-## Purpose
-Defines `SpawnAgentTool`: lets a parent agent launch sub-agents asynchronously and receive their results via the notification flow.
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: SpawnAgentTool launches a sub-agent asynchronously
 `SpawnAgentTool.call(params, context)` SHALL create an AgentRun record (status=running), launch a sub-agent via `asyncio.create_task`, and immediately return the agent_run_id without blocking. It SHALL fire a SubagentStart hook event before launching and a SubagentEnd hook event when the background coroutine completes. The launched task SHALL be registered in `parent_runner.child_tasks` (if a parent SessionRunner exists in the local registry) so that runner shutdown cancels it.
 
@@ -20,26 +19,7 @@ Defines `SpawnAgentTool`: lets a parent agent launch sub-agents asynchronously a
 - **WHEN** a spawned sub-agent finishes (any exit reason)
 - **THEN** a SubagentEnd hook event SHALL fire with payload containing agent_run_id, role, status, result, parent_run_id
 
-### Requirement: SpawnAgentTool input schema
-The tool SHALL accept the following parameters:
-- `role` (string, required): role file name (without .md extension)
-- `task_description` (string, required): task for the sub-agent (injected as user message)
-- `tools` (array of strings, optional): override role file tool whitelist
-
-#### Scenario: Schema accepts role + task_description
-- **WHEN** spawn_agent is invoked with `{role: "researcher", task_description: "..."}`
-- **THEN** the call SHALL succeed and the optional `tools` field SHALL default to the role file's whitelist
-
-### Requirement: extract_final_output retrieves last assistant text
-`extract_final_output(messages)` SHALL search messages in reverse order for the last message with role=assistant and non-empty content string. If no such message exists, return empty string.
-
-#### Scenario: Last message has content
-- **GIVEN** messages ends with {"role": "assistant", "content": "Final answer"}
-- **THEN** extract_final_output SHALL return "Final answer"
-
-#### Scenario: No assistant messages with content
-- **GIVEN** messages contains no assistant messages with content
-- **THEN** extract_final_output SHALL return ""
+## ADDED Requirements
 
 ### Requirement: Sub-agent completion writes notification to conversation
 When a spawned sub-agent finishes (any exit reason), the background coroutine SHALL persist its result as a `<task-notification>` user-role message into the parent conversation's `Conversation.messages` JSONB column via `append_message()`, then signal the parent SessionRunner via `wakeup.set()` (in-process) AND issue `NOTIFY session_wakeup, '<session_id>'` (for cross-process forward compatibility). The legacy `parent_state.notification_queue.put()` path is removed.
@@ -72,3 +52,12 @@ When a spawned sub-agent finishes (any exit reason), the background coroutine SH
 - **AND** only the `NOTIFY session_wakeup` signal SHALL be issued (in-process wakeup is skipped)
 - **AND** when the user later POSTs a new message, a fresh SessionRunner SHALL be created and load the notification from history
 
+## REMOVED Requirements
+
+### Requirement: Notification queue integration
+**Reason**: Replaced by PG-backed notification persistence + SessionRunner wakeup signaling. The in-process `parent_state.notification_queue` is no longer the transport for sub-agent results — `Conversation.messages` is the durable channel and `SessionRunner.wakeup` is the wake signal.
+**Migration**: Code paths that previously enqueued to `parent_state.notification_queue` SHALL append a `<task-notification>` user message to `Conversation.messages` and call `parent_runner.wakeup.set()`. The `AgentState.notification_queue` field is removed; any reference to it must be deleted. Tests that previously asserted on queue contents SHALL instead assert on the conversation's messages list.
+
+### Requirement: Notification format follows CC task-notification pattern
+**Reason**: This requirement is preserved verbatim under the new "Sub-agent completion writes notification to conversation" requirement above (XML format unchanged). Listing it as REMOVED here only retires the standalone requirement entry that was scoped to the now-removed notification queue.
+**Migration**: No content change — `format_task_notification()` is still used to build the message body, just routed to `append_message()` instead of `queue.put()`.

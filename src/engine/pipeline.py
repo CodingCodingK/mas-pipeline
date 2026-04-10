@@ -226,7 +226,12 @@ async def execute_pipeline(
     """
     from src.db import get_checkpointer
     from src.engine.graph import PipelineState, build_graph
-    from src.engine.run import RunStatus, finish_run, update_run_status
+    from src.engine.run import (
+        RunStatus,
+        emit_pipeline_event,
+        finish_run,
+        update_run_status,
+    )
     from src.mcp.manager import MCPManager
     from src.permissions.types import PermissionMode
     from src.project.config import get_settings
@@ -252,6 +257,11 @@ async def execute_pipeline(
             "project_id": project_id,
             "user_input": user_input,
         })
+        emit_pipeline_event(run_id, {
+            "type": "pipeline_start",
+            "pipeline": pipeline_name,
+            "node_count": len(pipeline.nodes),
+        })
 
         # Transition run: pending → running
         await update_run_status(run_id, RunStatus.RUNNING)
@@ -259,8 +269,10 @@ async def execute_pipeline(
         # Resolve run_id str → workflow_runs.id for task creation
         run_id_int = await _resolve_run_id_int(run_id)
 
-        # Shared abort signal
+        # Shared abort signal — register so REST cancel endpoint can flip it.
+        from src.engine.run import register_abort_signal, unregister_abort_signal
         abort_signal = asyncio.Event()
+        register_abort_signal(run_id, abort_signal)
 
         # Build and compile the LangGraph
         checkpointer = await get_checkpointer()
@@ -298,6 +310,11 @@ async def execute_pipeline(
                 "status": "failed",
                 "error": str(exc),
             })
+            emit_pipeline_event(run_id, {
+                "type": "pipeline_end",
+                "status": "failed",
+                "error": str(exc),
+            })
 
             return PipelineResult(
                 run_id=run_id,
@@ -320,6 +337,10 @@ async def execute_pipeline(
                 "pipeline_name": pipeline_name,
                 "run_id": run_id,
                 "status": "paused",
+                "paused_at": paused_at,
+            })
+            emit_pipeline_event(run_id, {
+                "type": "pipeline_paused",
                 "paused_at": paused_at,
             })
 
@@ -357,6 +378,11 @@ async def execute_pipeline(
             "status": status,
             "error": error,
         })
+        emit_pipeline_event(run_id, {
+            "type": "pipeline_end",
+            "status": status,
+            "error": error,
+        })
 
         return PipelineResult(
             run_id=run_id,
@@ -368,6 +394,7 @@ async def execute_pipeline(
 
     finally:
         await mcp_manager.shutdown()
+        unregister_abort_signal(run_id)
 
 
 # ── Resume & status ──────────────────────────────────────

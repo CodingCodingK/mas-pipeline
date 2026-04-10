@@ -93,6 +93,14 @@ class CompactConfig(BaseModel):
 
 class SessionConfig(BaseModel):
     agent_ttl_hours: int = 24
+    # Phase 6.1: SessionRunner lifecycle
+    idle_timeout_seconds: int = 60
+    max_age_seconds: int = 86400
+
+
+class SpawnAgentConfig(BaseModel):
+    # Phase 6.1: hard ceiling for a single sub-agent run.
+    timeout_seconds: int = 300
 
 
 class DefaultUserConfig(BaseModel):
@@ -129,6 +137,7 @@ class Settings(BaseModel):
     agent: AgentConfig = AgentConfig()
     compact: CompactConfig = CompactConfig()
     session: SessionConfig = SessionConfig()
+    spawn_agent: SpawnAgentConfig = SpawnAgentConfig()
     tavily: TavilyConfig = TavilyConfig()
     server: ServerConfig = ServerConfig()
     context_windows: dict[str, int] = {}
@@ -138,6 +147,8 @@ class Settings(BaseModel):
     mcp_default_access: str = "all"
     channels: ChannelsConfig = ChannelsConfig()
     sandbox: SandboxConfig = SandboxConfig()
+    # Phase 6.1: REST API auth — empty list disables auth (development mode)
+    api_keys: list[str] = []
 
 
 def load_yaml(path: Path) -> dict:

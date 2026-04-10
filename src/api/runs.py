@@ -1,0 +1,249 @@
+"""REST endpoints for workflow runs: trigger, resume, cancel, query."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy import select
+
+from src.api.auth import require_api_key
+from src.db import get_db
+from src.engine.pipeline import execute_pipeline, resume_pipeline
+from src.engine.run import (
+    RunStatus,
+    create_run,
+    get_abort_signal,
+    get_run,
+    subscribe_pipeline_events,
+    unsubscribe_pipeline_events,
+    update_run_status,
+)
+from src.models import WorkflowRun
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(dependencies=[Depends(require_api_key)])
+
+_PIPELINES_DIR = Path(__file__).resolve().parent.parent.parent / "pipelines"
+
+
+# ── Models ──────────────────────────────────────────────────
+
+
+class TriggerRunBody(BaseModel):
+    input: dict[str, Any] = {}
+
+
+class TriggerRunResponse(BaseModel):
+    run_id: str
+
+
+class ResumeBody(BaseModel):
+    value: Any = None
+
+
+class StatusResponse(BaseModel):
+    run_id: str
+    status: str
+
+
+class RunDetail(BaseModel):
+    run_id: str
+    project_id: int
+    pipeline: str | None = None
+    status: str
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
+# ── Helpers ─────────────────────────────────────────────────
+
+
+def _pipeline_yaml_path(name: str) -> Path | None:
+    """Resolve a pipeline name to its YAML file, accepting bare or _generation suffix."""
+    candidates = [
+        _PIPELINES_DIR / f"{name}.yaml",
+        _PIPELINES_DIR / f"{name}_generation.yaml",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return p
+    return None
+
+
+def _to_detail(run: WorkflowRun) -> RunDetail:
+    return RunDetail(
+        run_id=run.run_id,
+        project_id=run.project_id,
+        pipeline=run.pipeline,
+        status=run.status,
+        started_at=str(run.started_at) if run.started_at else None,
+        finished_at=str(run.finished_at) if run.finished_at else None,
+    )
+
+
+def _user_input_from_dict(payload: dict[str, Any]) -> str:
+    """Pipelines accept a single user_input str. Coerce dict→JSON for now."""
+    if not payload:
+        return ""
+    return json.dumps(payload, ensure_ascii=False)
+
+
+# ── Endpoints ───────────────────────────────────────────────
+
+
+@router.post(
+    "/projects/{project_id}/pipelines/{pipeline_name}/runs",
+    status_code=202,
+)
+async def trigger_pipeline(
+    project_id: int,
+    pipeline_name: str,
+    body: TriggerRunBody,
+    stream: bool = Query(False),
+):
+    """Create a WorkflowRun and start pipeline execution.
+
+    `?stream=true` switches to an SSE response that emits status updates as
+    the run progresses (Phase 6.1: status-only — full StreamEvent fan-out
+    requires deeper engine surgery, tracked in deployment risks).
+    """
+    yaml_path = _pipeline_yaml_path(pipeline_name)
+    if yaml_path is None:
+        raise HTTPException(
+            status_code=404, detail=f"pipeline not found: {pipeline_name}"
+        )
+
+    run = await create_run(
+        project_id=project_id,
+        pipeline=pipeline_name,
+    )
+    user_input = _user_input_from_dict(body.input)
+
+    # Resolve canonical pipeline name (strip _generation suffix for execute_pipeline)
+    canonical = yaml_path.stem
+
+    async def _do_run():
+        try:
+            await execute_pipeline(
+                pipeline_name=canonical,
+                run_id=run.run_id,
+                project_id=project_id,
+                user_input=user_input,
+            )
+        except Exception:
+            logger.exception("Pipeline run %s crashed", run.run_id)
+
+    if not stream:
+        asyncio.create_task(_do_run(), name=f"pipeline:{run.run_id}")
+        return TriggerRunResponse(run_id=run.run_id)
+
+    # SSE: subscribe to the pipeline event stream BEFORE kicking off the
+    # task, so we don't miss the pipeline_start event.
+    queue = subscribe_pipeline_events(run.run_id)
+    task = asyncio.create_task(_do_run(), name=f"pipeline:{run.run_id}")
+
+    async def event_stream():
+        try:
+            yield (
+                f"event: started\n"
+                f"data: {json.dumps({'run_id': run.run_id})}\n\n"
+            )
+            terminal_types = {"pipeline_end", "pipeline_failed"}
+            while True:
+                # Periodic timeout lets us detect "pipeline crashed before
+                # emitting end" via task.done() + drain remaining events.
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    # Heartbeat to keep the connection alive through proxies.
+                    yield ": ping\n\n"
+                    if task.done() and queue.empty():
+                        # Pipeline task is gone and no events pending — bail.
+                        return
+                    continue
+
+                payload = json.dumps(
+                    {"run_id": run.run_id, **event}, ensure_ascii=False
+                )
+                yield f"event: {event.get('type', 'message')}\ndata: {payload}\n\n"
+
+                if event.get("type") in terminal_types:
+                    return
+        finally:
+            unsubscribe_pipeline_events(run.run_id, queue)
+
+    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    return StreamingResponse(
+        event_stream(), media_type="text/event-stream", headers=headers
+    )
+
+
+@router.post("/runs/{run_id}/resume", status_code=202)
+async def resume_run(run_id: str, body: ResumeBody) -> StatusResponse:
+    run = await get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    if run.status != RunStatus.PAUSED.value:
+        raise HTTPException(status_code=409, detail="run is not paused")
+    if run.pipeline is None:
+        raise HTTPException(status_code=409, detail="run has no pipeline associated")
+
+    feedback = body.value if isinstance(body.value, str) else (
+        json.dumps(body.value, ensure_ascii=False) if body.value is not None else None
+    )
+
+    async def _do_resume():
+        try:
+            await resume_pipeline(
+                pipeline_name=run.pipeline,
+                run_id=run.run_id,
+                project_id=run.project_id,
+                feedback=feedback,
+            )
+        except Exception:
+            logger.exception("Pipeline resume %s crashed", run.run_id)
+
+    asyncio.create_task(_do_resume(), name=f"pipeline-resume:{run.run_id}")
+    return StatusResponse(run_id=run.run_id, status="resumed")
+
+
+@router.post("/runs/{run_id}/cancel", status_code=202)
+async def cancel_run(run_id: str) -> StatusResponse:
+    run = await get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    # No-op if already in a terminal state.
+    if run.status in (
+        RunStatus.COMPLETED.value,
+        RunStatus.FAILED.value,
+        RunStatus.CANCELLED.value,
+    ):
+        return StatusResponse(run_id=run.run_id, status=run.status)
+
+    signal = get_abort_signal(run.run_id)
+    if signal is not None:
+        signal.set()
+
+    try:
+        await update_run_status(run.run_id, RunStatus.CANCELLED)
+    except Exception:
+        logger.exception("Failed to mark run %s cancelled", run.run_id)
+
+    return StatusResponse(run_id=run.run_id, status="cancelled")
+
+
+@router.get("/runs/{run_id}", response_model=RunDetail)
+async def get_run_detail(run_id: str) -> RunDetail:
+    run = await get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return _to_detail(run)

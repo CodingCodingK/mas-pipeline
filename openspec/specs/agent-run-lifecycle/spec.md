@@ -1,5 +1,6 @@
-## ADDED Requirements
-
+## Purpose
+Defines the lifecycle of `AgentRun` records: creation, completion, failure, and audit queries for sub-agent launches.
+## Requirements
 ### Requirement: create_agent_run records a sub-agent launch
 `create_agent_run(run_id, role, description, owner)` SHALL insert a row into the `agent_runs` table with status='running' and return an AgentRun instance.
 
@@ -33,8 +34,15 @@
 - **THEN** it SHALL return None
 
 ### Requirement: AgentRun is a pure audit record
-AgentRun records SHALL NOT be used for system control flow. The notification queue (asyncio.Queue on AgentState) drives coordinator_loop, not DB queries on agent_runs.
+AgentRun records SHALL NOT be used for system control flow. Sub-agent completion is signaled to the parent SessionRunner via two channels: (1) the result is persisted as a `<task-notification>` user-role message in `Conversation.messages`, and (2) the parent `SessionRunner.wakeup` event is set. The parent's main loop wakes up, re-enters `agent_loop`, and the LLM sees the new message naturally on the next turn. AgentRun rows SHALL be queried only for audit/debugging purposes.
 
 #### Scenario: Control flow independence
-- **WHEN** coordinator_loop waits for sub-agent completion
-- **THEN** it SHALL await the notification_queue, NOT query the agent_runs table
+- **WHEN** a SessionRunner is waiting for sub-agent completion
+- **THEN** it SHALL await its `wakeup` event, NOT poll the `agent_runs` table
+- **AND** the wakeup signal SHALL come from the spawn_agent background callback after it persists the notification message
+
+#### Scenario: No queue object on state
+- **WHEN** an AgentState is constructed for any session
+- **THEN** it SHALL NOT contain a `notification_queue` field
+- **AND** any reference to `parent_state.notification_queue` SHALL fail at import/runtime
+

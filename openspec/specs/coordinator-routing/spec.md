@@ -1,59 +1,19 @@
 ## Purpose
 Defines how user requests are dispatched: `run_coordinator` runs the autonomous coordinator loop, while pipeline routing is the caller's responsibility.
 ## Requirements
-### Requirement: run_coordinator is the unified entry point
-`run_coordinator(project_id: int, user_input: str) -> CoordinatorResult` SHALL be an async function that runs the autonomous coordinator loop. It SHALL NOT check `Project.pipeline` or call `execute_pipeline`. Pipeline routing is the caller's responsibility.
+### Requirement: coordinator-routing capability is deprecated
+The `coordinator-routing` capability SHALL be retained as a deprecation marker only. Routing is now performed at the HTTP layer via the REST API; in-process `run_coordinator` no longer exists. New code SHALL NOT depend on this capability.
 
-#### Scenario: Function signature
-- **WHEN** run_coordinator is called with project_id and user_input
-- **THEN** it SHALL return a CoordinatorResult instance
+#### Scenario: HTTP layer owns routing
+- **WHEN** a client wants to trigger a pipeline
+- **THEN** it SHALL POST to `/api/projects/{id}/pipelines/{name}/runs`
+- **AND** chat/autonomous sessions SHALL go through `/api/sessions/{id}/messages` instead
 
-#### Scenario: run_coordinator runs autonomous mode unconditionally
-- **WHEN** run_coordinator is called
-- **THEN** it SHALL create a WorkflowRun and start coordinator_loop, regardless of Project.pipeline
+### Requirement: coordinator-routing capability remains deprecated
+The `coordinator-routing` capability SHALL remain a deprecation marker; routing now happens at the HTTP layer via the REST API. Code SHALL NOT depend on this capability.
 
-#### Scenario: run_coordinator does not call execute_pipeline
-- **WHEN** run_coordinator is called for a project that has a pipeline configured
-- **THEN** it SHALL NOT call execute_pipeline (caller should have routed to execute_pipeline directly)
-
-### Requirement: run_coordinator creates a WorkflowRun
-`run_coordinator` SHALL create a WorkflowRun via `create_run(project_id)` before dispatching to either mode.
-
-#### Scenario: WorkflowRun creation
-- **WHEN** run_coordinator is called
-- **THEN** a WorkflowRun SHALL be created with status='pending' before any mode execution begins
-
-### Requirement: CoordinatorResult contains unified output structure
-`CoordinatorResult` SHALL be a dataclass with fields relevant to autonomous mode only: `run_id` (str), `mode` (always `'autonomous'`), `output` (str), `tasks` (list[dict] | None). It SHALL NOT contain `node_outputs` or support `mode='pipeline'`.
-
-#### Scenario: Autonomous mode result
-- **WHEN** coordinator_loop completes
-- **THEN** CoordinatorResult SHALL have mode='autonomous', output=agent's final message, tasks=list of Task records for the run
-
-#### Scenario: No pipeline-related fields
-- **WHEN** CoordinatorResult is returned
-- **THEN** it SHALL NOT contain `node_outputs` and `mode` SHALL NOT be `'pipeline'`
-
-### Requirement: run_coordinator finishes the WorkflowRun
-After mode execution completes, `run_coordinator` SHALL call `finish_run()` with COMPLETED or FAILED status.
-
-#### Scenario: Successful execution
-- **WHEN** mode execution completes without error
-- **THEN** finish_run SHALL be called with RunStatus.COMPLETED
-
-#### Scenario: Failed execution
-- **WHEN** mode execution raises an exception
-- **THEN** finish_run SHALL be called with RunStatus.FAILED
-- **AND** the exception SHALL be propagated
-
-### Requirement: Caller performs pipeline routing
-The caller (CLI, API, test scripts) SHALL check `Project.pipeline` and route accordingly: if pipeline is set, call `execute_pipeline()` directly; if not, call `run_coordinator()`.
-
-#### Scenario: Caller routes to pipeline
-- **WHEN** a project has pipeline="blog_generation"
-- **THEN** the caller SHALL call execute_pipeline("blog_generation", ...) directly
-
-#### Scenario: Caller routes to coordinator
-- **WHEN** a project has no pipeline (pipeline is None or empty)
-- **THEN** the caller SHALL call run_coordinator(project_id, user_input)
+#### Scenario: HTTP routing
+- **WHEN** a client triggers a pipeline
+- **THEN** it SHALL POST to `/api/projects/{id}/pipelines/{name}/runs`
+- **AND** chat/autonomous sessions SHALL use `/api/sessions/{id}/messages`
 

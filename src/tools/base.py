@@ -27,13 +27,15 @@ class ToolContext:
     run_id: str
     project_id: int | None = None
     abort_signal: asyncio.Event | None = None
-    # Reference to parent AgentState (for coordinator notification queue).
-    # TYPE_CHECKING-only import to avoid circular dependency.
-    parent_state: Any = None
     # Hook runner for lifecycle events (SubagentStart/End etc.)
     hook_runner: Any = None
     # Permission checker for SubAgent deny-rule inheritance
     permission_checker: Any = None
+    # Phase 6.1: SessionRunner addressing — set when running under a SessionRunner.
+    # spawn_agent uses these to persist task notifications and wake the parent runner.
+    # Sub-agents inherit them so nested spawns route notifications to the same session.
+    session_id: int | None = None
+    conversation_id: int | None = None
 
 
 class Tool(ABC):

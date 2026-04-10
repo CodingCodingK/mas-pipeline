@@ -1,5 +1,6 @@
-## ADDED Requirements
-
+## Purpose
+Defines `ChatSession` and `Conversation` persistence.
+## Requirements
 ### Requirement: Conversation CRUD
 The system SHALL provide Conversation management backed by PostgreSQL (`conversations` table, renamed from `user_sessions`) for persisting cross-run user conversation history at the project level.
 
@@ -86,3 +87,30 @@ The `user_sessions` table in `scripts/init_db.sql` SHALL be renamed to `conversa
 #### Scenario: FK reference updated
 - **WHEN** `workflow_runs` table definition is inspected
 - **THEN** `session_id` SHALL reference `conversations(id)`
+
+### Requirement: ChatSession mode field
+The `chat_sessions` table SHALL have a `mode VARCHAR(20) NOT NULL DEFAULT 'chat'` column with allowed values `chat` and `autonomous`. The `ChatSession` SQLAlchemy ORM model in `src/models.py` SHALL expose this column as `mode: Mapped[str]`.
+
+#### Scenario: Default mode is chat
+- **WHEN** a new `ChatSession` row is inserted without specifying `mode`
+- **THEN** the row SHALL have `mode="chat"`
+
+#### Scenario: Autonomous mode persisted
+- **WHEN** a `ChatSession` is created with `mode="autonomous"`
+- **THEN** the column SHALL persist the value and ORM read-back SHALL return `"autonomous"`
+
+#### Scenario: Existing rows backfilled
+- **WHEN** the `mode` column is added to an existing `chat_sessions` table via migration
+- **THEN** all existing rows SHALL receive `mode="chat"`
+
+### Requirement: Session resolution accepts mode
+`resolve_session(channel, chat_id, project_id, mode="chat")` in `src/bus/session.py` SHALL accept an optional `mode` parameter. When creating a new session row (cache miss + PG miss), the `mode` SHALL be persisted on the new `ChatSession`. When loading an existing session, the stored `mode` SHALL be returned unchanged (the parameter is only used at creation time).
+
+#### Scenario: New session uses requested mode
+- **WHEN** `resolve_session("web", "abc", project_id=1, mode="autonomous")` is called and no session exists
+- **THEN** the created `ChatSession` SHALL have `mode="autonomous"`
+
+#### Scenario: Existing session ignores mode parameter
+- **WHEN** a session with `mode="chat"` exists and `resolve_session(..., mode="autonomous")` is called for the same key
+- **THEN** the returned session SHALL still have `mode="chat"` (mode is immutable after creation)
+

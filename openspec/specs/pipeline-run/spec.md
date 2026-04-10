@@ -1,15 +1,29 @@
-## MODIFIED Requirements
-
+## Purpose
+Defines `WorkflowRun` lifecycle: status enum, state transitions, and abort signaling.
+## Requirements
 ### Requirement: RunStatus enum defines valid workflow run states
-RunStatus(str, Enum) SHALL define: PENDING, RUNNING, COMPLETED, FAILED.
+RunStatus(str, Enum) SHALL define: PENDING, RUNNING, COMPLETED, FAILED, CANCELLED.
+
+#### Scenario: Enum members
+- **WHEN** RunStatus is imported
+- **THEN** it SHALL expose PENDING, RUNNING, COMPLETED, FAILED, CANCELLED as string values
 
 ### Requirement: VALID_TRANSITIONS defines the state machine
 Only the following transitions SHALL be allowed:
 - PENDING → RUNNING
+- PENDING → CANCELLED
 - RUNNING → COMPLETED
 - RUNNING → FAILED
+- RUNNING → CANCELLED
+- RUNNING → PAUSED (when an interrupt node pauses execution)
+- PAUSED → RUNNING (resume)
+- PAUSED → CANCELLED
 
-COMPLETED and FAILED are terminal states with no outgoing transitions.
+COMPLETED, FAILED, and CANCELLED are terminal states with no outgoing transitions.
+
+#### Scenario: Cancel allowed from running
+- **WHEN** update_run_status is called on a run with status='running' to status='cancelled'
+- **THEN** the transition SHALL succeed and the run SHALL be in cancelled state
 
 ### Requirement: InvalidTransitionError raised on illegal state change
 `update_run_status` and `finish_run` SHALL raise InvalidTransitionError when the requested transition is not in VALID_TRANSITIONS.
@@ -33,12 +47,8 @@ COMPLETED and FAILED are terminal states with no outgoing transitions.
 - **WHEN** create_run(project_id=1) is called
 - **THEN** session_id SHALL be None, pipeline SHALL be None
 
-#### Scenario: Coordinator autonomous mode
-- **WHEN** run_coordinator creates a run for autonomous mode
-- **THEN** pipeline SHALL be None (no pipeline associated)
-
 #### Scenario: Pipeline engine usage
-- **WHEN** the Coordinator or test script creates a run with pipeline="blog_generation" and passes the run_id to execute_pipeline
+- **WHEN** the REST trigger endpoint or a test script creates a run with pipeline="blog_generation" and passes the run_id to execute_pipeline
 - **THEN** the WorkflowRun.pipeline field SHALL match the pipeline name being executed
 
 ### Requirement: get_run retrieves a workflow run by run_id
@@ -83,3 +93,8 @@ COMPLETED and FAILED are terminal states with no outgoing transitions.
 
 ### Requirement: Redis sync on every state change
 Every call to create_run, update_run_status, and finish_run SHALL write to Redis Hash `workflow_run:{run_id}` with fields: project_id, pipeline, status, started_at, finished_at.
+
+#### Scenario: Status change syncs to Redis
+- **WHEN** update_run_status is called for a run
+- **THEN** the matching Redis Hash `workflow_run:{run_id}` SHALL reflect the new status field
+

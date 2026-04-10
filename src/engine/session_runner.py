@@ -1,0 +1,305 @@
+"""SessionRunner: per-session long-running coroutine.
+
+Phase 6.1 走法 A. Owns one chat session's AgentState across HTTP turns,
+listens for new user messages and sub-agent completion notifications via an
+asyncio.Event, fans StreamEvents out to SSE subscribers.
+
+See openspec/changes/add-rest-api-session-runner/specs/session-runner/spec.md
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import AsyncIterator  # noqa: TC003 — runtime use
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
+
+from src.agent.loop import agent_loop
+from src.agent.state import ExitReason
+from src.project.config import get_settings
+from src.streaming.events import StreamEvent
+
+if TYPE_CHECKING:
+    from src.agent.state import AgentState
+
+logger = logging.getLogger(__name__)
+
+# Subscriber queue capacity (events). Slow subscribers drop oldest.
+_SUBSCRIBER_QUEUE_MAX = 100
+
+# Role mapping per session.mode
+_MODE_TO_ROLE = {
+    "chat": "assistant",
+    "autonomous": "coordinator",
+}
+
+
+class SessionRunner:
+    """One per chat session. Wraps a long-running asyncio.Task driving agent_loop."""
+
+    def __init__(
+        self,
+        session_id: int,
+        mode: str,
+        project_id: int,
+        conversation_id: int,
+    ) -> None:
+        if mode not in _MODE_TO_ROLE:
+            raise ValueError(f"invalid session mode: {mode!r}")
+
+        self.session_id = session_id
+        self.mode = mode
+        self.project_id = project_id
+        self.conversation_id = conversation_id
+
+        self.state: AgentState | None = None
+        self.wakeup: asyncio.Event = asyncio.Event()
+        self.subscribers: set[asyncio.Queue[StreamEvent]] = set()
+        self.child_tasks: set[asyncio.Task] = set()
+
+        now = datetime.utcnow()
+        self.created_at = now
+        self.last_active_at = now
+
+        self._task: asyncio.Task | None = None
+        self._exit_requested = False
+        self._messages_persisted_count = 0  # how many of state.messages already in PG
+
+    # ── Lifecycle ───────────────────────────────────────────
+
+    async def start(self) -> None:
+        """Build the AgentState and launch the main loop task.
+
+        Loads existing conversation history from PG so the resumed session
+        sees prior turns + any sub-agent notifications written while the
+        previous runner instance was dead.
+        """
+        from src.agent.factory import create_agent
+        from src.bus.session import get_session_history
+        from src.permissions.types import PermissionMode
+
+        role = _MODE_TO_ROLE[self.mode]
+
+        # Load history from PG before constructing the agent
+        history = await get_session_history(self.conversation_id, max_messages=200)
+
+        self.state = await create_agent(
+            role=role,
+            task_description="",  # history-driven; no fresh task injection
+            project_id=self.project_id,
+            run_id=f"session-{self.session_id}",
+            permission_mode=PermissionMode.NORMAL,
+            abort_signal=asyncio.Event(),
+        )
+
+        # Replace factory-injected boilerplate user message with real history.
+        # create_agent always emits [system, user(task_description)] — drop the
+        # empty user message and append history after the system prompt.
+        if self.state.messages and self.state.messages[-1].get("role") == "user" \
+                and not self.state.messages[-1].get("content"):
+            self.state.messages.pop()
+        self.state.messages.extend(history)
+        self._messages_persisted_count = len(self.state.messages)
+
+        # Tag the tool_context so spawn_agent can route notifications back here.
+        self.state.tool_context.session_id = self.session_id
+        self.state.tool_context.conversation_id = self.conversation_id
+
+        # Mark how many messages from history are already in PG so the main
+        # loop only persists what gets newly added during this run.
+
+        self._task = asyncio.create_task(self._main_loop(), name=f"SessionRunner-{self.session_id}")
+        logger.info("SessionRunner %d started (mode=%s)", self.session_id, self.mode)
+
+    @property
+    def is_done(self) -> bool:
+        return self._task is not None and self._task.done()
+
+    async def wait_done(self) -> None:
+        if self._task is not None:
+            try:
+                await self._task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    async def request_exit(self) -> None:
+        """Signal the main loop to exit at the next wakeup boundary."""
+        self._exit_requested = True
+        self.wakeup.set()
+
+    def cancel(self) -> None:
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+
+    # ── Subscriber management ───────────────────────────────
+
+    def add_subscriber(self) -> asyncio.Queue[StreamEvent]:
+        q: asyncio.Queue[StreamEvent] = asyncio.Queue(maxsize=_SUBSCRIBER_QUEUE_MAX)
+        self.subscribers.add(q)
+        self._touch()
+        return q
+
+    def remove_subscriber(self, q: asyncio.Queue[StreamEvent]) -> None:
+        self.subscribers.discard(q)
+
+    def _fanout(self, event: StreamEvent) -> None:
+        """Push event to every subscriber, oldest-drop on full queue."""
+        for q in list(self.subscribers):
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                # Drop oldest, retry once
+                try:
+                    _ = q.get_nowait()
+                    q.put_nowait(event)
+                    logger.warning(
+                        "SessionRunner %d: subscriber queue full, dropped oldest event",
+                        self.session_id,
+                    )
+                except Exception:
+                    logger.exception("SessionRunner %d: failed to fan out event", self.session_id)
+
+    # ── External wake-up triggers ───────────────────────────
+
+    def notify_new_message(self) -> None:
+        """Called by HTTP handler / spawn_agent callback after appending a
+        user-role message to Conversation.messages."""
+        self._touch()
+        self.wakeup.set()
+
+    def _touch(self) -> None:
+        self.last_active_at = datetime.utcnow()
+
+    # ── Main loop ───────────────────────────────────────────
+
+    async def _main_loop(self) -> None:
+        from src.engine.session_registry import deregister
+        from src.session.manager import append_message
+
+        settings = get_settings()
+        idle_timeout = settings.session.idle_timeout_seconds
+        max_age = timedelta(seconds=settings.session.max_age_seconds)
+
+        try:
+            while True:
+                # 1. Pull any new messages from PG that arrived while we were idle
+                #    (cheap path: only run if our in-memory tail is shorter than PG)
+                await self._sync_inbound_from_pg()
+
+                # 2. Drive agent_loop until it exits a turn
+                async for event in agent_loop(self.state):  # type: ignore[arg-type]
+                    self._fanout(event)
+                    self._touch()
+
+                # 3. Persist any new in-memory messages added during the turn
+                await self._persist_new_messages(append_message)
+
+                # 4. Decide whether to wait or exit
+                if self._exit_requested:
+                    break
+
+                if self.state.running_agent_count > 0:  # type: ignore[union-attr]
+                    # Sub-agents still running — wait for notification
+                    await self._wait_for_wakeup(idle_timeout=None, max_age=max_age)
+                    continue
+
+                # Idle: wait with timeout
+                exited = await self._wait_for_wakeup(idle_timeout=idle_timeout, max_age=max_age)
+                if exited:
+                    break
+
+        except asyncio.CancelledError:
+            logger.info("SessionRunner %d cancelled", self.session_id)
+            raise
+        except Exception:
+            logger.exception("SessionRunner %d crashed", self.session_id)
+        finally:
+            for t in list(self.child_tasks):
+                if not t.done():
+                    t.cancel()
+            self.child_tasks.clear()
+            await deregister(self.session_id)
+            logger.info("SessionRunner %d exited", self.session_id)
+
+    async def _wait_for_wakeup(
+        self,
+        idle_timeout: float | None,
+        max_age: timedelta,
+    ) -> bool:
+        """Suspend until wakeup or idle timeout.
+
+        Returns True if the runner should exit (idle exhausted with no
+        subscribers/workers OR max_age reached). Always clears the wakeup
+        event before returning.
+        """
+        # Check max_age before waiting
+        if datetime.utcnow() - self.created_at >= max_age:
+            logger.info("SessionRunner %d max_age reached", self.session_id)
+            return True
+
+        try:
+            if idle_timeout is None:
+                await self.wakeup.wait()
+            else:
+                await asyncio.wait_for(self.wakeup.wait(), timeout=idle_timeout)
+        except asyncio.TimeoutError:
+            # Idle window elapsed — check exit conditions
+            if (
+                len(self.subscribers) == 0
+                and self.state is not None
+                and self.state.running_agent_count == 0
+            ):
+                return True
+            # Still has subscribers/workers — keep waiting
+            self.wakeup.clear()
+            return False
+
+        self.wakeup.clear()
+        return False
+
+    # ── PG persistence helpers ──────────────────────────────
+
+    async def _sync_inbound_from_pg(self) -> None:
+        """If PG has more messages than our in-memory state, append the new ones.
+
+        This catches messages that arrived from external sources (HTTP handler,
+        spawn_agent callback in another process) since we last looped.
+
+        Resilient to a deleted conversation (test cleanup, GDPR purge): logs
+        and requests exit instead of crashing the main loop.
+        """
+        from src.session.manager import ConversationNotFoundError, get_messages
+
+        try:
+            pg_messages = await get_messages(self.conversation_id)
+        except ConversationNotFoundError:
+            logger.warning(
+                "SessionRunner %d: conversation %d gone, exiting",
+                self.session_id, self.conversation_id,
+            )
+            self._exit_requested = True
+            self.wakeup.set()
+            return
+        if len(pg_messages) > self._messages_persisted_count:
+            new_msgs = pg_messages[self._messages_persisted_count:]
+            self.state.messages.extend(new_msgs)  # type: ignore[union-attr]
+            self._messages_persisted_count = len(pg_messages)
+
+    async def _persist_new_messages(self, append_message_fn) -> None:
+        """Append any messages added during this turn back to PG."""
+        if self.state is None:
+            return
+        in_mem = self.state.messages
+        new_count = len(in_mem) - self._messages_persisted_count
+        if new_count <= 0:
+            return
+        for msg in in_mem[self._messages_persisted_count:]:
+            try:
+                await append_message_fn(self.conversation_id, msg)
+            except Exception:
+                logger.exception(
+                    "SessionRunner %d: failed to persist message", self.session_id
+                )
+                return
+        self._messages_persisted_count = len(in_mem)

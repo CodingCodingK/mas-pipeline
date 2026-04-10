@@ -25,14 +25,21 @@ async def resolve_session(
     chat_id: str,
     project_id: int,
     ttl_hours: int = _DEFAULT_TTL_HOURS,
+    mode: str = "chat",
 ) -> ChatSession:
     """Look up or create a ChatSession.
 
     1. Check Redis cache for session_key
     2. Fall back to PG query
-    3. Create new ChatSession + Conversation if not found
+    3. Create new ChatSession + Conversation if not found (using `mode`)
     4. Cache result in Redis
+
+    The `mode` parameter is ONLY used at creation time. If a session already
+    exists, its stored mode is returned unchanged.
     """
+    if mode not in ("chat", "autonomous"):
+        raise ValueError(f"invalid session mode: {mode!r}")
+
     redis = get_redis()
     cache_key = f"{_CACHE_PREFIX}{session_key}"
 
@@ -48,6 +55,7 @@ async def resolve_session(
             chat_id=chat_id,
             project_id=data["project_id"],
             conversation_id=data["conversation_id"],
+            mode=data.get("mode", "chat"),
             status="active",
         )
         return session
@@ -78,6 +86,7 @@ async def resolve_session(
                 chat_id=chat_id,
                 project_id=project_id,
                 conversation_id=conv.id,
+                mode=mode,
             )
             db.add(session)
             await db.flush()
@@ -153,5 +162,6 @@ async def _cache_session(
         "id": session.id,
         "project_id": session.project_id,
         "conversation_id": session.conversation_id,
+        "mode": session.mode,
     })
     await redis.set(cache_key, data, ex=ttl_hours * 3600)

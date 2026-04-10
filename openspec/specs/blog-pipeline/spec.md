@@ -1,5 +1,6 @@
-## ADDED Requirements
-
+## Purpose
+Defines the `blog_generation` pipeline.
+## Requirements
 ### Requirement: blog_generation pipeline YAML defines a 3-node linear pipeline
 `pipelines/blog_generation.yaml` SHALL define a pipeline with 3 nodes: researcher → writer → reviewer, using dedicated role files.
 
@@ -37,10 +38,11 @@
 - **THEN** it SHALL output a polished final blog post in Markdown format
 - **AND** fix grammar, structure, and clarity issues
 
-### Requirement: blog_generation pipeline is accessible via run_coordinator
-When a Project has pipeline="blog_generation", `run_coordinator` SHALL route to `execute_pipeline("blog_generation", ...)`.
+### Requirement: blog pipeline is REST-triggered
+The `blog_generation` pipeline SHALL be triggered exclusively via `POST /api/projects/{project_id}/pipelines/blog/runs`, which delegates to `execute_pipeline("blog_generation", ...)`. The legacy `run_coordinator` indirection is removed (see `coordinator-routing` delta) and SHALL NOT be used.
 
-#### Scenario: End-to-end execution
-- **WHEN** run_coordinator is called with a project whose pipeline="blog_generation"
-- **AND** user_input is "写一篇关于 RAG 优化的技术博客"
-- **THEN** it SHALL execute the 3-node pipeline and return a CoordinatorResult with mode="pipeline"
+#### Scenario: REST trigger
+- **WHEN** a client wants to run the blog pipeline for project N
+- **THEN** it SHALL POST to `/api/projects/N/pipelines/blog/runs`
+- **AND** the server SHALL invoke `execute_pipeline("blog_generation", project_id=N, ...)` directly
+

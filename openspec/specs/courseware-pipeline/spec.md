@@ -1,5 +1,6 @@
-## ADDED Requirements
-
+## Purpose
+Defines the `courseware_exam` pipeline.
+## Requirements
 ### Requirement: courseware_exam pipeline YAML defines a 4-node linear pipeline
 `pipelines/courseware_exam.yaml` SHALL define a pipeline with 4 nodes: parser → analyzer → exam_generator → exam_reviewer, using dedicated role files.
 
@@ -78,17 +79,18 @@ The pipeline SHALL have a linear dependency chain: analyzer depends on parser, e
 - **THEN** it SHALL contain instructions for exam quality review
 - **AND** body length SHALL exceed 50 characters
 
-### Requirement: courseware_exam pipeline is accessible via run_coordinator
-When a Project has pipeline="courseware_exam", `run_coordinator` SHALL route to `execute_pipeline("courseware_exam", ...)`.
-
-#### Scenario: End-to-end routing
-- **WHEN** run_coordinator is called with a project whose pipeline="courseware_exam"
-- **AND** user_input describes a courseware file to process
-- **THEN** it SHALL execute the 4-node pipeline and return a CoordinatorResult with mode="pipeline"
-
 ### Requirement: All requested tools exist in global tool pool
 Every tool referenced in courseware_exam role files SHALL exist in get_all_tools().
 
 #### Scenario: Tool pool validation
 - **WHEN** all 4 role files are parsed for their tools lists
 - **THEN** every tool name SHALL be a key in the dict returned by get_all_tools()
+
+### Requirement: courseware-exam pipeline is REST-triggered
+The `courseware_exam` pipeline SHALL be triggered exclusively via `POST /api/projects/{project_id}/pipelines/courseware-exam/runs`, which delegates to `execute_pipeline("courseware_exam", ...)`. The legacy `run_coordinator` indirection is removed (see `coordinator-routing` delta) and SHALL NOT be used.
+
+#### Scenario: REST trigger
+- **WHEN** a client wants to run the courseware-exam pipeline for project N
+- **THEN** it SHALL POST to `/api/projects/N/pipelines/courseware-exam/runs`
+- **AND** the server SHALL invoke `execute_pipeline("courseware_exam", project_id=N, ...)` directly
+

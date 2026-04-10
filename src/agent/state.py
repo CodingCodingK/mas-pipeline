@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -41,10 +40,8 @@ class AgentState:
     max_turns: int = 50
     # Phase 3 compact
     has_attempted_reactive_compact: bool = False
-    # Notification queue for coordinator_loop (CC-style commandQueue).
-    # spawn_agent pushes notifications here on completion; coordinator_loop awaits.
-    notification_queue: asyncio.Queue[dict] | None = None
-    # Running agent counter for coordinator_loop exit condition.
+    # Phase 6.1: SessionRunner waits while sub-agents are still running.
+    # spawn_agent increments on launch and decrements when the background task finishes.
     running_agent_count: int = 0
     # Set by agent_loop generator before ending (replaces return value).
     exit_reason: ExitReason | None = None

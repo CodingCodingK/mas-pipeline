@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from enum import Enum
@@ -14,6 +15,79 @@ from src.models import WorkflowRun
 logger = logging.getLogger(__name__)
 
 
+# ── In-process abort signal registry ────────────────────────
+# Lets POST /api/runs/{run_id}/cancel signal a pipeline coroutine that's
+# currently executing in this process. Single-process only — multi-worker
+# deployments need a different mechanism (see deployment risks plan).
+
+_abort_signals: dict[str, asyncio.Event] = {}
+
+
+def register_abort_signal(run_id: str, signal: asyncio.Event) -> None:
+    _abort_signals[run_id] = signal
+
+
+def get_abort_signal(run_id: str) -> asyncio.Event | None:
+    return _abort_signals.get(run_id)
+
+
+def unregister_abort_signal(run_id: str) -> None:
+    _abort_signals.pop(run_id, None)
+
+
+# ── In-process pipeline event stream registry ───────────────
+# Lets the SSE trigger endpoint subscribe to lifecycle events emitted by
+# `execute_pipeline` / graph node functions in the same process. Like
+# `_abort_signals`, this is single-process only — multi-worker deployments
+# would need PG NOTIFY or Redis pub/sub. See deployment risks plan.
+#
+# Each run_id maps to a list of subscriber queues. Emitters fan out to all
+# subscribers; if a queue is full we silently drop (slow consumers shouldn't
+# back-pressure the pipeline). When a subscriber disconnects it removes its
+# own queue via `unsubscribe_pipeline_events`.
+
+_pipeline_event_streams: dict[str, list[asyncio.Queue]] = {}
+_PIPELINE_EVENT_QUEUE_MAX = 200
+
+
+def subscribe_pipeline_events(run_id: str) -> asyncio.Queue:
+    """Register a new subscriber for the run; returns the queue to drain."""
+    q: asyncio.Queue = asyncio.Queue(maxsize=_PIPELINE_EVENT_QUEUE_MAX)
+    _pipeline_event_streams.setdefault(run_id, []).append(q)
+    return q
+
+
+def unsubscribe_pipeline_events(run_id: str, q: asyncio.Queue) -> None:
+    subs = _pipeline_event_streams.get(run_id)
+    if not subs:
+        return
+    if q in subs:
+        subs.remove(q)
+    if not subs:
+        _pipeline_event_streams.pop(run_id, None)
+
+
+def emit_pipeline_event(run_id: str, event: dict) -> None:
+    """Best-effort fan-out — never blocks, never raises.
+
+    Drops the event for any subscriber whose queue is full (slow client) so
+    pipeline progress is never blocked by SSE consumers.
+    """
+    subs = _pipeline_event_streams.get(run_id)
+    if not subs:
+        return
+    for q in list(subs):
+        try:
+            q.put_nowait(event)
+        except asyncio.QueueFull:
+            logger.warning(
+                "pipeline event queue full for run %s, dropped %s",
+                run_id, event.get("type", "?"),
+            )
+        except Exception:
+            logger.exception("emit_pipeline_event failed for run %s", run_id)
+
+
 # ── State machine ──────────────────────────────────────────
 
 
@@ -23,16 +97,22 @@ class RunStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     PAUSED = "paused"
+    CANCELLED = "cancelled"
 
 
 VALID_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
-    RunStatus.PENDING: {RunStatus.RUNNING},
-    RunStatus.RUNNING: {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.PAUSED},
-    RunStatus.PAUSED: {RunStatus.RUNNING},
-    # COMPLETED and FAILED are terminal — no outgoing transitions
+    RunStatus.PENDING: {RunStatus.RUNNING, RunStatus.CANCELLED},
+    RunStatus.RUNNING: {
+        RunStatus.COMPLETED,
+        RunStatus.FAILED,
+        RunStatus.PAUSED,
+        RunStatus.CANCELLED,
+    },
+    RunStatus.PAUSED: {RunStatus.RUNNING, RunStatus.CANCELLED},
+    # COMPLETED, FAILED, CANCELLED are terminal — no outgoing transitions
 }
 
-_TERMINAL_STATES = {RunStatus.COMPLETED, RunStatus.FAILED}
+_TERMINAL_STATES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
 
 
 class InvalidTransitionError(Exception):

@@ -166,10 +166,12 @@ CREATE TABLE chat_sessions (
     chat_id         VARCHAR(255) NOT NULL,
     project_id      INTEGER NOT NULL REFERENCES projects(id),
     conversation_id INTEGER NOT NULL REFERENCES conversations(id),
+    mode            VARCHAR(20) NOT NULL DEFAULT 'chat',
     metadata        JSONB DEFAULT '{}',
     status          VARCHAR(50) DEFAULT 'active',
     created_at      TIMESTAMP DEFAULT NOW(),
-    last_active_at  TIMESTAMP DEFAULT NOW()
+    last_active_at  TIMESTAMP DEFAULT NOW(),
+    CHECK (mode IN ('chat', 'autonomous'))
 );
 CREATE INDEX idx_chat_sessions_channel ON chat_sessions(channel);
 CREATE INDEX idx_chat_sessions_project ON chat_sessions(project_id);

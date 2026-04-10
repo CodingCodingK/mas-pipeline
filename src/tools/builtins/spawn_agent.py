@@ -1,4 +1,10 @@
-"""Built-in tool: spawn_agent — asynchronously launch a sub-agent."""
+"""Built-in tool: spawn_agent — asynchronously launch a sub-agent.
+
+Phase 6.1: notifications are persisted as messages on the parent's
+Conversation (PG) and the parent SessionRunner is woken via its
+in-process asyncio.Event. A best-effort PG NOTIFY signals other
+processes (forward-compat for multi-worker deployments).
+"""
 
 from __future__ import annotations
 
@@ -11,11 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def extract_final_output(messages: list[dict]) -> str:
-    """Extract the last assistant message with text content.
-
-    Searches backwards through messages for the most recent assistant message
-    that has a non-empty content string. Mirrors CC's finalizeAgentTool() logic.
-    """
+    """Extract the last assistant message with text content."""
     for msg in reversed(messages):
         if msg.get("role") == "assistant":
             content = msg.get("content")
@@ -36,6 +38,22 @@ def format_task_notification(
         f"<result>{result}</result>\n"
         f"</task-notification>"
     )
+
+
+def _build_notification_message(
+    agent_run_id: int, role: str, status: str, result: str
+) -> dict:
+    """Wrap a task notification as a user-role message dict for Conversation.messages."""
+    return {
+        "role": "user",
+        "content": format_task_notification(agent_run_id, role, status, result),
+        "metadata": {
+            "kind": "task_notification",
+            "agent_run_id": agent_run_id,
+            "sub_agent_role": role,
+            "status": status,
+        },
+    }
 
 
 class SpawnAgentTool(Tool):
@@ -71,10 +89,8 @@ class SpawnAgentTool(Tool):
         task_description: str = params["task_description"]
         tools_override: list[str] | None = params.get("tools")
 
-        # Resolve run_id to int for record creation
         run_id_int = await self._resolve_run_id(context)
 
-        # Create an AgentRun audit record (directly as running)
         agent_id = f"{context.run_id}:{role}" if context.run_id else role
         agent_run = await create_agent_run(
             run_id=run_id_int,
@@ -84,11 +100,6 @@ class SpawnAgentTool(Tool):
         )
         agent_run_id = agent_run.id
 
-        # Increment running counter on parent state (for coordinator_loop)
-        if context.parent_state and context.parent_state.notification_queue is not None:
-            context.parent_state.running_agent_count += 1
-
-        # Fire SubagentStart hook
         await self._fire_hook(context, "subagent_start", {
             "agent_run_id": agent_run_id,
             "role": role,
@@ -96,16 +107,24 @@ class SpawnAgentTool(Tool):
             "parent_run_id": context.run_id,
         })
 
-        # Launch background coroutine
-        asyncio.create_task(
+        # Launch background coroutine. Track it on the parent SessionRunner so
+        # graceful shutdown can cancel it.
+        task = asyncio.create_task(
             self._run_agent_background(
                 agent_run_id=agent_run_id,
                 role=role,
                 task_description=task_description,
                 context=context,
                 tools_override=tools_override,
-            )
+            ),
+            name=f"spawn_agent:{role}:{agent_run_id}",
         )
+
+        parent_runner = self._lookup_parent_runner(context)
+        if parent_runner is not None:
+            parent_runner.child_tasks.add(task)
+            task.add_done_callback(parent_runner.child_tasks.discard)
+            parent_runner.state.running_agent_count += 1  # type: ignore[union-attr]
 
         return ToolResult(
             output=f"Sub-agent '{role}' launched (agent_run_id={agent_run_id}). Results will arrive as notifications.",
@@ -120,85 +139,202 @@ class SpawnAgentTool(Tool):
         context: ToolContext,
         tools_override: list[str] | None,
     ) -> None:
-        """Background coroutine: run agent loop, then write record + push notification."""
+        """Background coroutine: run agent loop, then persist notification + wake parent.
+
+        Hard contract: NEVER propagate exceptions. Any failure persists a
+        failure notification and is logged at ERROR.
+        """
         from src.agent.factory import create_agent
         from src.agent.loop import run_agent_to_completion
         from src.agent.runs import complete_agent_run, fail_agent_run
         from src.agent.state import ExitReason
+        from src.project.config import get_settings
 
         status = "failed"
         result = ""
+        timeout_seconds = get_settings().spawn_agent.timeout_seconds
 
         try:
-            # Inherit parent deny rules + permission mode
-            parent_deny_rules = None
-            permission_mode = None
-            if context.permission_checker is not None:
-                parent_deny_rules = context.permission_checker.get_deny_rules()
-                permission_mode = context.permission_checker._mode
+            try:
+                # Inherit parent deny rules + permission mode
+                parent_deny_rules = None
+                permission_mode = None
+                if context.permission_checker is not None:
+                    parent_deny_rules = context.permission_checker.get_deny_rules()
+                    permission_mode = context.permission_checker._mode
 
-            # Lazy import to get default
-            if permission_mode is None:
-                from src.permissions.types import PermissionMode
-                permission_mode = PermissionMode.NORMAL
+                if permission_mode is None:
+                    from src.permissions.types import PermissionMode
+                    permission_mode = PermissionMode.NORMAL
 
-            state = await create_agent(
+                state = await create_agent(
+                    role=role,
+                    task_description=task_description,
+                    project_id=context.project_id,
+                    run_id=context.run_id,
+                    tools_override=tools_override,
+                    abort_signal=context.abort_signal,
+                    permission_mode=permission_mode,
+                    parent_deny_rules=parent_deny_rules,
+                )
+
+                # Forward parent SessionRunner addressing so nested spawns route
+                # back to the same conversation.
+                state.tool_context.session_id = context.session_id
+                state.tool_context.conversation_id = context.conversation_id
+
+                exit_reason = await asyncio.wait_for(
+                    run_agent_to_completion(state),
+                    timeout=timeout_seconds,
+                )
+                output = extract_final_output(state.messages)
+
+                if exit_reason == ExitReason.COMPLETED:
+                    await complete_agent_run(agent_run_id, output or "(no output)")
+                    status = "completed"
+                    result = output or "(no output)"
+                elif exit_reason == ExitReason.MAX_TURNS:
+                    await complete_agent_run(agent_run_id, f"[MAX_TURNS] {output}")
+                    status = "completed"
+                    result = f"[MAX_TURNS] {output}"
+                elif exit_reason == ExitReason.ABORT:
+                    await fail_agent_run(agent_run_id, f"[ABORT] agent aborted. {output}")
+                    status = "failed"
+                    result = f"[ABORT] agent aborted. {output}"
+                else:
+                    await fail_agent_run(agent_run_id, f"[ERROR] agent failed. {output}")
+                    status = "failed"
+                    result = f"[ERROR] agent failed. {output}"
+
+            except asyncio.TimeoutError:
+                logger.error(
+                    "Sub-agent '%s' (agent_run %d) exceeded %ds timeout",
+                    role, agent_run_id, timeout_seconds,
+                )
+                await fail_agent_run(
+                    agent_run_id,
+                    f"[TIMEOUT] sub-agent exceeded {timeout_seconds}s",
+                )
+                status = "failed"
+                result = f"[TIMEOUT] sub-agent exceeded {timeout_seconds}s"
+            except asyncio.CancelledError:
+                logger.warning("Sub-agent '%s' (agent_run %d) cancelled", role, agent_run_id)
+                try:
+                    await fail_agent_run(agent_run_id, "[CANCELLED] sub-agent cancelled")
+                except Exception:
+                    logger.exception("Failed to mark cancelled agent_run %d", agent_run_id)
+                status = "failed"
+                result = "[CANCELLED] sub-agent cancelled"
+                # Do not re-raise — we still want to persist the notification.
+            except Exception as exc:
+                logger.exception(
+                    "Sub-agent '%s' (agent_run %d) raised exception", role, agent_run_id
+                )
+                try:
+                    await fail_agent_run(agent_run_id, f"[ERROR] {exc}")
+                except Exception:
+                    logger.exception("Failed to mark failed agent_run %d", agent_run_id)
+                status = "failed"
+                result = f"[ERROR] {exc}"
+
+            # Persist notification + wake parent. Best-effort: any failure here
+            # is logged but never propagated.
+            await self._notify_parent(
+                agent_run_id=agent_run_id,
                 role=role,
-                task_description=task_description,
-                project_id=context.project_id,
-                run_id=context.run_id,
-                tools_override=tools_override,
-                abort_signal=context.abort_signal,
-                permission_mode=permission_mode,
-                parent_deny_rules=parent_deny_rules,
+                status=status,
+                result=result,
+                context=context,
             )
 
-            exit_reason = await run_agent_to_completion(state)
-            output = extract_final_output(state.messages)
-
-            if exit_reason == ExitReason.COMPLETED:
-                await complete_agent_run(agent_run_id, output or "(no output)")
-                status = "completed"
-                result = output or "(no output)"
-            elif exit_reason == ExitReason.MAX_TURNS:
-                await complete_agent_run(agent_run_id, f"[MAX_TURNS] {output}")
-                status = "completed"
-                result = f"[MAX_TURNS] {output}"
-            elif exit_reason == ExitReason.ABORT:
-                await fail_agent_run(agent_run_id, f"[ABORT] agent aborted. {output}")
-                status = "failed"
-                result = f"[ABORT] agent aborted. {output}"
-            else:
-                await fail_agent_run(agent_run_id, f"[ERROR] agent failed. {output}")
-                status = "failed"
-                result = f"[ERROR] agent failed. {output}"
-
-        except Exception as exc:
-            logger.exception("Sub-agent '%s' (agent_run %d) raised exception", role, agent_run_id)
-            await fail_agent_run(agent_run_id, f"[ERROR] {exc}")
-            status = "failed"
-            result = f"[ERROR] {exc}"
-
-        # Push notification to parent's queue (CC-style enqueueAgentNotification)
-        if context.parent_state and context.parent_state.notification_queue is not None:
-            notification = {
+            await self._fire_hook(context, "subagent_end", {
                 "agent_run_id": agent_run_id,
                 "role": role,
                 "status": status,
                 "result": result,
-                "message": format_task_notification(agent_run_id, role, status, result),
-            }
-            await context.parent_state.notification_queue.put(notification)
-            context.parent_state.running_agent_count -= 1
+                "parent_run_id": context.run_id,
+            })
 
-        # Fire SubagentEnd hook
-        await self._fire_hook(context, "subagent_end", {
-            "agent_run_id": agent_run_id,
-            "role": role,
-            "status": status,
-            "result": result,
-            "parent_run_id": context.run_id,
-        })
+        except Exception:
+            # Catch-all: this coroutine MUST NOT propagate.
+            logger.exception(
+                "spawn_agent background task crashed (agent_run %d)", agent_run_id
+            )
+        finally:
+            parent_runner = self._lookup_parent_runner(context)
+            if parent_runner is not None and parent_runner.state is not None:
+                parent_runner.state.running_agent_count = max(
+                    0, parent_runner.state.running_agent_count - 1
+                )
+
+    async def _notify_parent(
+        self,
+        agent_run_id: int,
+        role: str,
+        status: str,
+        result: str,
+        context: ToolContext,
+    ) -> None:
+        """Persist task notification + wake parent runner (in-proc + cross-proc)."""
+        from src.session.manager import append_message
+
+        message = _build_notification_message(agent_run_id, role, status, result)
+
+        if context.conversation_id is not None:
+            try:
+                await append_message(context.conversation_id, message)
+            except Exception:
+                logger.exception(
+                    "Failed to persist task notification for agent_run %d", agent_run_id
+                )
+        else:
+            logger.warning(
+                "spawn_agent: no conversation_id on tool_context, skipping persist (agent_run %d)",
+                agent_run_id,
+            )
+
+        # In-process wakeup
+        parent_runner = self._lookup_parent_runner(context)
+        if parent_runner is not None:
+            parent_runner.notify_new_message()
+
+        # Cross-process wakeup (best-effort)
+        if context.session_id is not None:
+            await self._notify_session_wakeup(context.session_id)
+
+    @staticmethod
+    def _lookup_parent_runner(context: ToolContext):
+        """Look up the parent SessionRunner if it lives in this process."""
+        if context.session_id is None:
+            return None
+        try:
+            from src.engine.session_registry import get_runner
+            return get_runner(context.session_id)
+        except Exception:
+            logger.exception("Failed to look up parent SessionRunner")
+            return None
+
+    @staticmethod
+    async def _notify_session_wakeup(session_id: int) -> None:
+        """Best-effort PG NOTIFY session_wakeup '<session_id>'.
+
+        Failure here is non-fatal — the in-process wakeup already covers the
+        local case, and a future GC sweep will catch any missed cross-process
+        notification.
+        """
+        try:
+            from sqlalchemy import text
+
+            from src.db import get_db
+
+            async with get_db() as session:
+                # Use parameter binding via SET LOCAL to avoid SQL injection
+                # since NOTIFY does not accept parameters.
+                payload = str(int(session_id))
+                await session.execute(text(f"NOTIFY session_wakeup, '{payload}'"))
+                await session.commit()
+        except Exception:
+            logger.debug("PG NOTIFY session_wakeup failed (non-fatal)", exc_info=True)
 
     @staticmethod
     async def _fire_hook(context: ToolContext, event_name: str, payload: dict) -> None:
@@ -235,6 +371,5 @@ class SpawnAgentTool(Tool):
                 if row is not None:
                     return row
 
-        # Fallback: create a new run
         run = await create_run(project_id=context.project_id or 0)
         return run.id

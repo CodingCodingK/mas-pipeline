@@ -80,9 +80,17 @@ def _make_node_fn(
             return {}
 
         from src.engine.pipeline import _build_task_description, _run_node
+        from src.engine.run import emit_pipeline_event
 
         # Build task description from upstream outputs
         task_desc = _build_task_description(node, state["outputs"], state["user_input"])
+
+        emit_pipeline_event(state["run_id"], {
+            "type": "node_start",
+            "node": node.name,
+            "role": node.role,
+            "output_name": node.output,
+        })
 
         try:
             output = await _run_node(
@@ -95,9 +103,21 @@ def _make_node_fn(
                 permission_mode=permission_mode,
                 mcp_manager=mcp_manager,
             )
+            emit_pipeline_event(state["run_id"], {
+                "type": "node_end",
+                "node": node.name,
+                "output_name": node.output,
+                "output_length": len(output) if output else 0,
+                "output_preview": (output[:200] if output else ""),
+            })
             return {"outputs": {node.output: output}}
         except Exception as exc:
             logger.error("Node '%s' failed: %s", node.name, exc)
+            emit_pipeline_event(state["run_id"], {
+                "type": "node_failed",
+                "node": node.name,
+                "error": str(exc),
+            })
             return {"error": str(exc)}
 
     node_fn.__name__ = node.name

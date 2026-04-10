@@ -1,65 +1,19 @@
-## ADDED Requirements
+## Purpose
+Defines `coordinator_loop`, the legacy outer wait loop around `agent_loop`.
+## Requirements
+### Requirement: coordinator-loop capability is deprecated
+The `coordinator-loop` capability SHALL be retained as a deprecation marker only. All behavior previously owned by this capability is moved to `session-runner` (wait loop, wakeup) and `spawn-agent` (notification persistence). New code SHALL NOT depend on this capability.
 
-### Requirement: coordinator_loop wraps agent_loop with outer do-while
-`coordinator_loop(state: AgentState)` SHALL be an async generator that yields `StreamEvent`. It SHALL wrap agent_loop in an outer loop: yield all events from agent_loop, then check running_agent_count. It SHALL set `state.exit_reason` before ending.
+#### Scenario: No code imports coordinator_loop
+- **WHEN** any module is loaded in the project
+- **THEN** it SHALL NOT import `src.engine.coordinator` (the file is removed)
+- **AND** it SHALL NOT reference a `notification_queue` attribute on `AgentState`
 
-#### Scenario: No running agents after agent_loop
-- **WHEN** agent_loop exits with COMPLETED
-- **AND** state.running_agent_count is 0
-- **THEN** coordinator_loop SHALL exit immediately with COMPLETED
+### Requirement: coordinator-loop capability remains deprecated
+The `coordinator-loop` capability SHALL remain a deprecation marker; the wait loop and notification gating responsibilities are owned by `session-runner` and `spawn-agent`. Code SHALL NOT depend on this capability.
 
-#### Scenario: Running agents still active
-- **WHEN** agent_loop exits with COMPLETED
-- **AND** state.running_agent_count > 0
-- **THEN** coordinator_loop SHALL await state.notification_queue.get()
+#### Scenario: No imports
+- **WHEN** any module is loaded
+- **THEN** it SHALL NOT import `src.engine.coordinator`
+- **AND** it SHALL NOT reference `notification_queue` on `AgentState`
 
-### Requirement: Notification queue drives the wait loop
-coordinator_loop SHALL use `await state.notification_queue.get()` to wait for sub-agent completion. No DB polling, no sleep loops.
-
-#### Scenario: Await notification
-- **WHEN** coordinator_loop is waiting for sub-agents
-- **THEN** it SHALL block on `await state.notification_queue.get()` until a notification arrives
-- **AND** zero LLM calls and zero DB queries SHALL occur during the wait
-
-#### Scenario: Drain all available notifications
-- **WHEN** a notification arrives and more notifications are immediately available
-- **THEN** coordinator_loop SHALL drain all available notifications via get_nowait() before re-entering agent_loop
-
-### Requirement: Notification injection as user message
-When a notification arrives, coordinator_loop SHALL append it to state.messages as a user-role message before re-entering agent_loop.
-
-#### Scenario: Completed agent notification
-- **WHEN** agent_run #42 (role=researcher) completes with result="findings..."
-- **THEN** a message SHALL be appended to state.messages with role="user" and content containing the `<task-notification>` XML
-
-#### Scenario: Failed agent notification
-- **WHEN** agent_run #43 (role=writer) fails with error="timeout"
-- **THEN** a message SHALL be appended with role="user" containing the failure notification
-
-### Requirement: coordinator_loop re-enters agent_loop after notification injection
-After injecting notifications, coordinator_loop SHALL call agent_loop(state) again to let the LLM process the results.
-
-#### Scenario: Re-entry cycle
-- **WHEN** notifications have been injected
-- **THEN** agent_loop SHALL be called again
-- **AND** the cycle repeats (check running_agent_count after exit)
-
-#### Scenario: All agents complete after re-entry
-- **WHEN** agent_loop exits after processing notifications
-- **AND** state.running_agent_count is 0
-- **THEN** coordinator_loop SHALL exit with COMPLETED
-
-### Requirement: Zero LLM cost during wait
-The notification wait SHALL NOT make any LLM API calls. Only asyncio.Queue operations are allowed during the wait phase.
-
-#### Scenario: Waiting for slow agent
-- **WHEN** a background agent takes 30 seconds to complete
-- **THEN** during those 30 seconds, zero LLM calls SHALL be made
-
-### Requirement: notification_queue initialized by coordinator_loop
-coordinator_loop SHALL set `state.notification_queue = asyncio.Queue()` and `state.running_agent_count = 0` before the first agent_loop call.
-
-#### Scenario: Queue initialization
-- **WHEN** coordinator_loop is called
-- **THEN** state.notification_queue SHALL be an asyncio.Queue instance
-- **AND** state.running_agent_count SHALL be 0
