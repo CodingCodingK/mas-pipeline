@@ -13,15 +13,27 @@ import sys
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.agent.loop import agent_loop
+from src.agent.loop import run_agent_to_completion
 from src.agent.messages import format_assistant_msg, format_tool_msg, format_user_msg
 from src.agent.state import AgentState, ExitReason
 from src.llm.adapter import LLMAdapter, LLMResponse, ToolCallRequest, Usage
+from src.streaming.events import StreamEvent
 from src.tools.base import ToolContext, ToolResult
 from src.tools.builtins.read_file import ReadFileTool
 from src.tools.builtins.shell import ShellTool
 from src.tools.orchestrator import ToolOrchestrator
 from src.tools.registry import ToolRegistry
+
+
+async def _response_to_stream(resp: LLMResponse):
+    """Convert a full LLMResponse into a stream of StreamEvent (for mocks)."""
+    if resp.content:
+        yield StreamEvent(type="text_delta", content=resp.content)
+    for tc in resp.tool_calls or []:
+        yield StreamEvent(type="tool_end", tool_call=tc)
+    if resp.usage:
+        yield StreamEvent(type="usage", usage=resp.usage)
+    yield StreamEvent(type="done", finish_reason=resp.finish_reason or "stop")
 
 # --- Mock adapter that simulates LLM responses ---
 
@@ -45,12 +57,26 @@ class MockAdapter(LLMAdapter):
         self._call_count += 1
         return resp
 
+    async def call_stream(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        **kwargs,
+    ):
+        resp = await self.call(messages, tools, **kwargs)
+        async for event in _response_to_stream(resp):
+            yield event
+
 
 class FailingAdapter(LLMAdapter):
     """Always raises an exception."""
 
     async def call(self, messages, tools=None, **kwargs):
         raise ConnectionError("LLM unreachable")
+
+    async def call_stream(self, messages, tools=None, **kwargs):
+        raise ConnectionError("LLM unreachable")
+        yield  # unreachable; makes this an async generator
 
 
 # --- Helper to build a standard AgentState ---
@@ -152,7 +178,7 @@ async def test_completed_no_tools():
         LLMResponse(content="I don't need any tools for this.", usage=Usage(10, 8, 0)),
     ])
     state = make_state(adapter)
-    reason = await agent_loop(state)
+    reason = await run_agent_to_completion(state)
     assert reason == ExitReason.COMPLETED
     assert state.turn_count == 0  # no tool round happened
     # Messages: [user, assistant]
@@ -182,7 +208,7 @@ async def test_react_cycle():
         LLMResponse(content="The file starts with a docstring.", usage=Usage(30, 15, 0)),
     ])
     state = make_state(adapter)
-    reason = await agent_loop(state)
+    reason = await run_agent_to_completion(state)
     assert reason == ExitReason.COMPLETED
     assert state.turn_count == 1  # one tool round
 
@@ -213,7 +239,7 @@ async def test_max_turns():
         for i in range(10)
     ]
     state = make_state(MockAdapter(endless_responses), max_turns=2)
-    reason = await agent_loop(state)
+    reason = await run_agent_to_completion(state)
     assert reason == ExitReason.MAX_TURNS
     assert state.turn_count == 2
     print("  max_turns=2 triggered: OK")
@@ -222,7 +248,7 @@ async def test_max_turns():
 async def test_error():
     print("=== agent_loop: ERROR ===")
     state = make_state(FailingAdapter())
-    reason = await agent_loop(state)
+    reason = await run_agent_to_completion(state)
     assert reason == ExitReason.ERROR
     assert state.turn_count == 0
     print("  adapter exception -> ERROR: OK")
@@ -236,7 +262,7 @@ async def test_abort():
         LLMResponse(content="should not reach here"),
     ])
     state = make_state(adapter, abort_signal=abort)
-    reason = await agent_loop(state)
+    reason = await run_agent_to_completion(state)
     assert reason == ExitReason.ABORT
     # Adapter should not have been called
     assert adapter._call_count == 0
@@ -257,7 +283,7 @@ async def test_message_format():
         LLMResponse(content="Done.", usage=Usage(10, 5, 0)),
     ])
     state = make_state(adapter)
-    await agent_loop(state)
+    await run_agent_to_completion(state)
 
     # Check assistant message with tool_calls
     assistant_msg = state.messages[1]

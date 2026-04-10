@@ -10,7 +10,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.agent.state import AgentState, ExitReason
+from src.streaming.events import StreamEvent
 from src.tools.base import ToolContext
+
+
+async def _default_stream(msgs, tools):
+    yield StreamEvent(type="text_delta", content="Done")
+    yield StreamEvent(type="done", finish_reason="stop")
 
 passed = 0
 failed = 0
@@ -30,11 +36,7 @@ def _make_state(messages=None, model="test-model"):
     mock_adapter = AsyncMock()
     mock_adapter.model = model
 
-    mock_response = MagicMock()
-    mock_response.content = "Done"
-    mock_response.tool_calls = []
-    mock_response.thinking = None
-    mock_adapter.call = AsyncMock(return_value=mock_response)
+    mock_adapter.call_stream = _default_stream
 
     mock_tools = MagicMock()
     mock_tools.list_definitions.return_value = []
@@ -86,9 +88,9 @@ async def test_microcompact_called():
         patch("src.agent.loop.get_settings") as mock_settings,
     ):
         mock_settings.return_value.compact.micro_keep_recent = 3
-        from src.agent.loop import agent_loop
+        from src.agent.loop import run_agent_to_completion
 
-        result = await agent_loop(state)
+        result = await run_agent_to_completion(state)
 
     check("Microcompact called", mock_micro.called)
     check("Loop completes", result == ExitReason.COMPLETED)
@@ -112,9 +114,9 @@ async def test_blocking_limit():
         patch("src.agent.loop.get_settings") as mock_settings,
     ):
         mock_settings.return_value.compact.micro_keep_recent = 3
-        from src.agent.loop import agent_loop
+        from src.agent.loop import run_agent_to_completion
 
-        result = await agent_loop(state)
+        result = await run_agent_to_completion(state)
 
     check("Blocking limit returns TOKEN_LIMIT", result == ExitReason.TOKEN_LIMIT)
 
@@ -155,9 +157,9 @@ async def test_autocompact_trigger():
         patch("src.agent.loop.auto_compact", AsyncMock(return_value=mock_compact_result)) as mock_auto,
     ):
         mock_settings.return_value.compact.micro_keep_recent = 3
-        from src.agent.loop import agent_loop
+        from src.agent.loop import run_agent_to_completion
 
-        result = await agent_loop(state)
+        result = await run_agent_to_completion(state)
 
     check("Autocompact was called", mock_auto.called)
     check("Loop still completes", result == ExitReason.COMPLETED)
@@ -189,17 +191,14 @@ async def test_reactive_compact():
 
     call_count = [0]
 
-    async def fake_call(msgs, tools):
+    async def fake_call_stream(msgs, tools):
         call_count[0] += 1
         if call_count[0] == 1:
             raise Exception("Error: context_length_exceeded")
-        resp = MagicMock()
-        resp.content = "Done after reactive"
-        resp.tool_calls = []
-        resp.thinking = None
-        return resp
+        yield StreamEvent(type="text_delta", content="Done after reactive")
+        yield StreamEvent(type="done", finish_reason="stop")
 
-    mock_adapter.call = fake_call
+    mock_adapter.call_stream = fake_call_stream
     state.adapter = mock_adapter
 
     with (
@@ -210,9 +209,9 @@ async def test_reactive_compact():
         patch("src.agent.loop.reactive_compact", AsyncMock(return_value=mock_compact_result)) as mock_reactive,
     ):
         mock_settings.return_value.compact.micro_keep_recent = 3
-        from src.agent.loop import agent_loop
+        from src.agent.loop import run_agent_to_completion
 
-        result = await agent_loop(state)
+        result = await run_agent_to_completion(state)
 
     check("Reactive compact called", mock_reactive.called)
     check("Flag set after reactive", state.has_attempted_reactive_compact)
@@ -233,7 +232,12 @@ async def test_second_context_error():
 
     mock_adapter = AsyncMock()
     mock_adapter.model = "test-model"
-    mock_adapter.call = AsyncMock(side_effect=Exception("context_length_exceeded"))
+
+    async def fail_stream(msgs, tools):
+        raise Exception("context_length_exceeded")
+        yield  # unreachable
+
+    mock_adapter.call_stream = fail_stream
     state.adapter = mock_adapter
 
     with (
@@ -243,9 +247,9 @@ async def test_second_context_error():
         patch("src.agent.loop.get_settings") as mock_settings,
     ):
         mock_settings.return_value.compact.micro_keep_recent = 3
-        from src.agent.loop import agent_loop
+        from src.agent.loop import run_agent_to_completion
 
-        result = await agent_loop(state)
+        result = await run_agent_to_completion(state)
 
     check("Second error returns TOKEN_LIMIT", result == ExitReason.TOKEN_LIMIT)
 
@@ -263,7 +267,12 @@ async def test_non_context_error():
 
     mock_adapter = AsyncMock()
     mock_adapter.model = "test-model"
-    mock_adapter.call = AsyncMock(side_effect=Exception("connection refused"))
+
+    async def fail_stream(msgs, tools):
+        raise Exception("connection refused")
+        yield  # unreachable
+
+    mock_adapter.call_stream = fail_stream
     state.adapter = mock_adapter
 
     with (
@@ -273,9 +282,9 @@ async def test_non_context_error():
         patch("src.agent.loop.get_settings") as mock_settings,
     ):
         mock_settings.return_value.compact.micro_keep_recent = 3
-        from src.agent.loop import agent_loop
+        from src.agent.loop import run_agent_to_completion
 
-        result = await agent_loop(state)
+        result = await run_agent_to_completion(state)
 
     check("Non-context error returns ERROR", result == ExitReason.ERROR)
 

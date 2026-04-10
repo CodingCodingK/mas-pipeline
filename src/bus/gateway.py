@@ -79,6 +79,11 @@ class Gateway:
     async def _process_message(self, msg: InboundMessage) -> None:
         """Core message processing: session -> history -> agent -> save -> respond."""
         try:
+            # Check for /resume command before normal processing
+            if msg.content.strip().startswith("/resume"):
+                await self._handle_resume(msg)
+                return
+
             # 1. Resolve session
             session = await resolve_session(
                 session_key=msg.session_key,
@@ -155,3 +160,101 @@ class Gateway:
         await run_agent_to_completion(state)
         output = extract_final_output(state.messages)
         return output or "(no response)"
+
+    async def _handle_resume(self, msg: InboundMessage) -> None:
+        """Handle /resume command: find paused pipelines, resume them.
+
+        Syntax:
+            /resume              — list paused runs for this project, auto-resume if only one
+            /resume <run_id>     — resume a specific run
+            /resume <run_id> <feedback>  — resume with feedback
+        """
+        from sqlalchemy import select
+
+        from src.db import get_db
+        from src.engine.pipeline import get_pipeline_status, resume_pipeline
+        from src.engine.run import RunStatus
+        from src.models import WorkflowRun
+
+        parts = msg.content.strip().split(maxsplit=2)
+        # parts[0] = "/resume", parts[1] = run_id (optional), parts[2] = feedback (optional)
+
+        specified_run_id = parts[1] if len(parts) > 1 else None
+        feedback = parts[2] if len(parts) > 2 else None
+
+        try:
+            if specified_run_id:
+                # Resume a specific run
+                status_info = await get_pipeline_status(specified_run_id)
+                if status_info["status"] != "paused":
+                    response = f"Run {specified_run_id} is not paused (status: {status_info['status']})."
+                else:
+                    # Look up pipeline_name from DB
+                    run = await self._get_run(specified_run_id)
+                    if not run or not run.pipeline:
+                        response = f"Run {specified_run_id} not found or has no pipeline."
+                    else:
+                        result = await resume_pipeline(
+                            pipeline_name=run.pipeline,
+                            run_id=specified_run_id,
+                            project_id=self._project_id,
+                            feedback=feedback,
+                        )
+                        response = f"Pipeline resumed. Status: {result.status}"
+                        if result.paused_at:
+                            response += f" (paused at: {result.paused_at})"
+            else:
+                # List paused runs for this project
+                paused_runs = await self._list_paused_runs()
+                if not paused_runs:
+                    response = "No paused pipelines found."
+                elif len(paused_runs) == 1:
+                    run = paused_runs[0]
+                    result = await resume_pipeline(
+                        pipeline_name=run.pipeline,
+                        run_id=run.run_id,
+                        project_id=self._project_id,
+                        feedback=feedback,
+                    )
+                    response = f"Resumed pipeline '{run.pipeline}'. Status: {result.status}"
+                    if result.paused_at:
+                        response += f" (paused at: {result.paused_at})"
+                else:
+                    lines = ["Multiple paused pipelines found:"]
+                    for run in paused_runs:
+                        lines.append(f"  /resume {run.run_id}  — {run.pipeline}")
+                    response = "\n".join(lines)
+
+        except Exception as exc:
+            logger.exception("Error handling /resume")
+            response = f"Error resuming pipeline: {exc}"
+
+        await self._bus.publish_outbound(OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=response,
+            reply_to=msg.metadata.get("message_id"),
+        ))
+
+    async def _list_paused_runs(self) -> list:
+        """List all paused workflow runs for this project."""
+        from sqlalchemy import select
+
+        from src.db import get_db
+        from src.engine.run import RunStatus
+        from src.models import WorkflowRun
+
+        async with get_db() as session:
+            result = await session.execute(
+                select(WorkflowRun).where(
+                    WorkflowRun.project_id == self._project_id,
+                    WorkflowRun.status == RunStatus.PAUSED.value,
+                    WorkflowRun.pipeline.isnot(None),
+                ).order_by(WorkflowRun.id.desc())
+            )
+            return list(result.scalars().all())
+
+    async def _get_run(self, run_id: str):
+        """Get a workflow run by run_id."""
+        from src.engine.run import get_run
+        return await get_run(run_id)

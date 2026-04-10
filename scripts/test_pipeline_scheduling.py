@@ -14,7 +14,14 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.engine.pipeline import load_pipeline
+from langgraph.checkpoint.memory import MemorySaver
+
+from src.engine.pipeline import load_pipeline  # noqa: F401
+
+
+async def _mem_checkpointer():
+    """Return a fresh MemorySaver (no DB, works on Windows ProactorEventLoop)."""
+    return MemorySaver()
 
 
 # Track execution order and timing
@@ -38,7 +45,7 @@ def check(name: str, condition: bool, detail: str = ""):
 
 # ── Test: Parallel node startup ──────────────────────────
 
-async def mock_run_node(node, task_description, project_id, run_id, run_id_int, abort_signal):
+async def mock_run_node(node, task_description, project_id, run_id, run_id_int, abort_signal, **kwargs):
     """Mock _run_node that records timing and returns output."""
     execution_log.append((node.name, time.monotonic() - start_time))
     await asyncio.sleep(0.2)  # Simulate LLM call
@@ -59,6 +66,7 @@ async def test_parallel_startup():
         patch("src.engine.pipeline._resolve_run_id_int", return_value=1) as _,
         patch("src.engine.run.update_run_status", new_callable=AsyncMock) as _,
         patch("src.engine.run.finish_run", new_callable=AsyncMock) as _,
+        patch("src.db.get_checkpointer", side_effect=_mem_checkpointer) as _,
     ):
         from src.engine.pipeline import execute_pipeline
 
@@ -109,6 +117,7 @@ async def test_linear_ordering():
         patch("src.engine.pipeline._resolve_run_id_int", return_value=1) as _,
         patch("src.engine.run.update_run_status", new_callable=AsyncMock) as _,
         patch("src.engine.run.finish_run", new_callable=AsyncMock) as _,
+        patch("src.db.get_checkpointer", side_effect=_mem_checkpointer) as _,
     ):
         from src.engine.pipeline import execute_pipeline
 
@@ -138,7 +147,7 @@ async def test_data_flow():
 
     received_descriptions: dict[str, str] = {}
 
-    async def tracking_run_node(node, task_description, project_id, run_id, run_id_int, abort_signal):
+    async def tracking_run_node(node, task_description, project_id, run_id, run_id_int, abort_signal, **kwargs):
         received_descriptions[node.name] = task_description
         await asyncio.sleep(0.1)
         return f"Output from {node.name}"
@@ -148,6 +157,7 @@ async def test_data_flow():
         patch("src.engine.pipeline._resolve_run_id_int", return_value=1) as _,
         patch("src.engine.run.update_run_status", new_callable=AsyncMock) as _,
         patch("src.engine.run.finish_run", new_callable=AsyncMock) as _,
+        patch("src.db.get_checkpointer", side_effect=_mem_checkpointer) as _,
     ):
         from src.engine.pipeline import execute_pipeline
 

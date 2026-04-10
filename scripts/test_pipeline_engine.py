@@ -13,10 +13,10 @@ from src.engine.pipeline import (
     NodeDefinition,
     PipelineDefinition,
     PipelineResult,
+    RouteDefinition,
     _build_task_description,
     _check_no_cycles,
     _find_terminal_outputs,
-    _mark_downstream_skipped,
     load_pipeline,
 )
 
@@ -191,35 +191,8 @@ check("Linear terminal is feedback", terminals == ["feedback"])
 terminals2 = _find_terminal_outputs(p2)
 check("Parallel terminal is final_article", terminals2 == ["final_article"])
 
-# ── 6. Downstream Skip Marking ────────────────────────────
-
-print("\n=== 6. Downstream Skip Marking ===")
-
-pending = {"writer", "reviewer", "editor"}
-skipped: set[str] = set()
-_mark_downstream_skipped(
-    "researcher",
-    p2.dependencies,
-    {n.name: n for n in p2.nodes},
-    pending,
-    skipped,
-)
-check("writer skipped (depends on researcher)", "writer" in skipped)
-check("reviewer skipped (depends on writer→researcher)", "reviewer" in skipped)
-check("editor skipped (depends on reviewer→writer→researcher)", "editor" in skipped)
-
-# Unrelated branch not affected
-pending2 = {"writer", "fact_checker", "reviewer", "editor"}
-skipped2: set[str] = set()
-_mark_downstream_skipped(
-    "analyst",
-    p2.dependencies,
-    {n.name: n for n in p2.nodes},
-    pending2,
-    skipped2,
-)
-check("writer skipped (depends on analyst)", "writer" in skipped2)
-check("fact_checker NOT skipped (no dependency on analyst)", "fact_checker" not in skipped2)
+# ── 6. Downstream skip marking now handled by LangGraph conditional edges ──
+# (removed: _mark_downstream_skipped was deleted in pipeline-interrupt refactor)
 
 # ── Summary ───────────────────────────────────────────────
 

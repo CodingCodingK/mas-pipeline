@@ -22,11 +22,13 @@ class RunStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    PAUSED = "paused"
 
 
 VALID_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
     RunStatus.PENDING: {RunStatus.RUNNING},
-    RunStatus.RUNNING: {RunStatus.COMPLETED, RunStatus.FAILED},
+    RunStatus.RUNNING: {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.PAUSED},
+    RunStatus.PAUSED: {RunStatus.RUNNING},
     # COMPLETED and FAILED are terminal — no outgoing transitions
 }
 

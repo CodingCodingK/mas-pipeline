@@ -7,6 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from langgraph.checkpoint.memory import MemorySaver
+
+
+async def _mem_checkpointer():
+    return MemorySaver()
+
+
 passed = 0
 failed = 0
 
@@ -68,6 +75,7 @@ async def test_pipeline_mcp_lifecycle():
          patch("src.engine.run.update_run_status", new_callable=AsyncMock), \
          patch("src.engine.run.finish_run", new_callable=AsyncMock), \
          patch("src.engine.pipeline._resolve_run_id_int", new_callable=AsyncMock, return_value=1), \
+         patch("src.db.get_checkpointer", side_effect=_mem_checkpointer), \
          patch("src.engine.pipeline._run_node", new_callable=AsyncMock, return_value="output"):
 
         from src.engine.pipeline import execute_pipeline
@@ -116,6 +124,7 @@ async def test_pipeline_no_mcp():
          patch("src.engine.run.update_run_status", new_callable=AsyncMock), \
          patch("src.engine.run.finish_run", new_callable=AsyncMock), \
          patch("src.engine.pipeline._resolve_run_id_int", new_callable=AsyncMock, return_value=1), \
+         patch("src.db.get_checkpointer", side_effect=_mem_checkpointer), \
          patch("src.engine.pipeline._run_node", new_callable=AsyncMock, return_value="output"):
 
         from src.engine.pipeline import execute_pipeline
@@ -163,6 +172,7 @@ async def test_pipeline_mcp_shutdown_on_failure():
          patch("src.engine.run.update_run_status", new_callable=AsyncMock), \
          patch("src.engine.run.finish_run", new_callable=AsyncMock), \
          patch("src.engine.pipeline._resolve_run_id_int", new_callable=AsyncMock, return_value=1), \
+         patch("src.db.get_checkpointer", side_effect=_mem_checkpointer), \
          patch("src.engine.pipeline._run_node", new_callable=AsyncMock, side_effect=RuntimeError("node failed")):
 
         from src.engine.pipeline import execute_pipeline

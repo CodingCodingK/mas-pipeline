@@ -1,6 +1,15 @@
-## Purpose
-Defines how user requests are dispatched: `run_coordinator` runs the autonomous coordinator loop, while pipeline routing is the caller's responsibility.
-## Requirements
+## REMOVED Requirements
+
+### Requirement: Pipeline mode routes to execute_pipeline when project has pipeline
+**Reason**: Pipeline routing is now the caller's responsibility — `run_coordinator` no longer checks `Project.pipeline` or dispatches to `execute_pipeline`.
+**Migration**: Callers (CLI, API, test scripts) should check `Project.pipeline` themselves and call `execute_pipeline()` directly when set.
+
+### Requirement: Autonomous mode routes to coordinator_loop when no pipeline
+**Reason**: `run_coordinator` is now unconditionally autonomous; the "routing" framing no longer applies.
+**Migration**: Replaced by "run_coordinator only handles autonomous mode" requirement.
+
+## MODIFIED Requirements
+
 ### Requirement: run_coordinator is the unified entry point
 `run_coordinator(project_id: int, user_input: str) -> CoordinatorResult` SHALL be an async function that runs the autonomous coordinator loop. It SHALL NOT check `Project.pipeline` or call `execute_pipeline`. Pipeline routing is the caller's responsibility.
 
@@ -16,13 +25,6 @@ Defines how user requests are dispatched: `run_coordinator` runs the autonomous 
 - **WHEN** run_coordinator is called for a project that has a pipeline configured
 - **THEN** it SHALL NOT call execute_pipeline (caller should have routed to execute_pipeline directly)
 
-### Requirement: run_coordinator creates a WorkflowRun
-`run_coordinator` SHALL create a WorkflowRun via `create_run(project_id)` before dispatching to either mode.
-
-#### Scenario: WorkflowRun creation
-- **WHEN** run_coordinator is called
-- **THEN** a WorkflowRun SHALL be created with status='pending' before any mode execution begins
-
 ### Requirement: CoordinatorResult contains unified output structure
 `CoordinatorResult` SHALL be a dataclass with fields relevant to autonomous mode only: `run_id` (str), `mode` (always `'autonomous'`), `output` (str), `tasks` (list[dict] | None). It SHALL NOT contain `node_outputs` or support `mode='pipeline'`.
 
@@ -34,17 +36,7 @@ Defines how user requests are dispatched: `run_coordinator` runs the autonomous 
 - **WHEN** CoordinatorResult is returned
 - **THEN** it SHALL NOT contain `node_outputs` and `mode` SHALL NOT be `'pipeline'`
 
-### Requirement: run_coordinator finishes the WorkflowRun
-After mode execution completes, `run_coordinator` SHALL call `finish_run()` with COMPLETED or FAILED status.
-
-#### Scenario: Successful execution
-- **WHEN** mode execution completes without error
-- **THEN** finish_run SHALL be called with RunStatus.COMPLETED
-
-#### Scenario: Failed execution
-- **WHEN** mode execution raises an exception
-- **THEN** finish_run SHALL be called with RunStatus.FAILED
-- **AND** the exception SHALL be propagated
+## ADDED Requirements
 
 ### Requirement: Caller performs pipeline routing
 The caller (CLI, API, test scripts) SHALL check `Project.pipeline` and route accordingly: if pipeline is set, call `execute_pipeline()` directly; if not, call `run_coordinator()`.
@@ -56,4 +48,3 @@ The caller (CLI, API, test scripts) SHALL check `Project.pipeline` and route acc
 #### Scenario: Caller routes to coordinator
 - **WHEN** a project has no pipeline (pipeline is None or empty)
 - **THEN** the caller SHALL call run_coordinator(project_id, user_input)
-

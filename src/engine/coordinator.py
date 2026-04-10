@@ -1,4 +1,4 @@
-"""Coordinator: unified entry point for pipeline and autonomous modes."""
+"""Coordinator: autonomous agent mode with sub-agent spawning."""
 
 from __future__ import annotations
 
@@ -6,24 +6,19 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator  # noqa: TC003
 from dataclasses import dataclass
-from pathlib import Path
 
 from src.agent.state import AgentState, ExitReason  # noqa: TC001 — used at runtime
 from src.streaming.events import StreamEvent  # noqa: TC001 — used at runtime
 
 logger = logging.getLogger(__name__)
 
-_PIPELINES_DIR = Path(__file__).resolve().parent.parent.parent / "pipelines"
-
 
 @dataclass
 class CoordinatorResult:
-    """Unified return from both pipeline and autonomous modes."""
+    """Return from autonomous coordinator mode."""
 
     run_id: str
-    mode: str  # 'pipeline' / 'autonomous'
     output: str
-    node_outputs: dict[str, str] | None = None
     agent_runs: list[dict] | None = None
 
 
@@ -83,102 +78,63 @@ async def run_coordinator(
     project_id: int,
     user_input: str,
 ) -> CoordinatorResult:
-    """Unified entry point: route to pipeline mode or autonomous mode.
+    """Autonomous coordinator mode: spawn sub-agents via coordinator_loop.
+
+    Pipeline routing is handled by the caller — this function only does
+    autonomous mode (coordinator agent + spawn_agent notifications).
 
     1. Creates a WorkflowRun
-    2. Checks Project.pipeline field
-    3. Pipeline mode → execute_pipeline
-    4. Autonomous mode → coordinator_loop with Coordinator Agent
+    2. Creates coordinator agent, runs coordinator_loop
+    3. Returns CoordinatorResult with agent audit records
     """
-    from sqlalchemy import select
-
     from src.agent.factory import create_agent
     from src.agent.runs import list_agent_runs
-    from src.db import get_db
-    from src.engine.pipeline import execute_pipeline
     from src.engine.run import RunStatus, create_run, finish_run, update_run_status
-    from src.models import Project
+    from src.permissions.types import PermissionMode
     from src.tools.builtins.spawn_agent import extract_final_output
 
-    # 1. Look up project
-    async with get_db() as session:
-        result = await session.execute(
-            select(Project).where(Project.id == project_id)
-        )
-        project = result.scalars().first()
-    if project is None:
-        raise ValueError(f"Project {project_id} not found")
-
-    pipeline_name = project.pipeline if project.pipeline else None
-
-    # 2. Create WorkflowRun
-    workflow_run = await create_run(
-        project_id=project_id,
-        pipeline=pipeline_name,
-    )
+    # Create WorkflowRun
+    workflow_run = await create_run(project_id=project_id)
     run_id = workflow_run.run_id
 
     try:
-        # 3. Route
-        if pipeline_name:
-            # Pipeline mode: verify YAML exists
-            yaml_path = _PIPELINES_DIR / f"{pipeline_name}.yaml"
-            if not yaml_path.is_file():
-                raise FileNotFoundError(
-                    f"Pipeline YAML not found: {yaml_path}"
-                )
+        await update_run_status(run_id, RunStatus.RUNNING)
 
-            await update_run_status(run_id, RunStatus.RUNNING)
-            pipeline_result = await execute_pipeline(
-                pipeline_name, run_id, project_id, user_input
-            )
+        state = await create_agent(
+            role="coordinator",
+            task_description=user_input,
+            project_id=project_id,
+            run_id=run_id,
+            abort_signal=asyncio.Event(),
+            permission_mode=PermissionMode.NORMAL,
+        )
 
-            return CoordinatorResult(
-                run_id=run_id,
-                mode="pipeline",
-                output=pipeline_result.final_output,
-                node_outputs=pipeline_result.outputs,
-            )
+        # Set parent_state so spawn_agent can push notifications
+        state.tool_context.parent_state = state
 
-        else:
-            # Autonomous mode
-            await update_run_status(run_id, RunStatus.RUNNING)
+        await run_coordinator_to_completion(state)
+        output = extract_final_output(state.messages)
 
-            state = await create_agent(
-                role="coordinator",
-                task_description=user_input,
-                project_id=project_id,
-                run_id=run_id,
-                abort_signal=asyncio.Event(),
-            )
+        # Fetch audit records
+        run_id_int = workflow_run.id
+        runs = await list_agent_runs(run_id_int)
+        agent_run_dicts = [
+            {
+                "id": r.id,
+                "role": r.role,
+                "status": r.status,
+                "result": r.result,
+            }
+            for r in runs
+        ]
 
-            # Set parent_state so spawn_agent can push notifications
-            state.tool_context.parent_state = state
+        await finish_run(run_id, RunStatus.COMPLETED)
 
-            await run_coordinator_to_completion(state)
-            output = extract_final_output(state.messages)
-
-            # Fetch audit records
-            run_id_int = workflow_run.id
-            runs = await list_agent_runs(run_id_int)
-            agent_run_dicts = [
-                {
-                    "id": r.id,
-                    "role": r.role,
-                    "status": r.status,
-                    "result": r.result,
-                }
-                for r in runs
-            ]
-
-            await finish_run(run_id, RunStatus.COMPLETED)
-
-            return CoordinatorResult(
-                run_id=run_id,
-                mode="autonomous",
-                output=output,
-                agent_runs=agent_run_dicts,
-            )
+        return CoordinatorResult(
+            run_id=run_id,
+            output=output,
+            agent_runs=agent_run_dicts,
+        )
 
     except Exception:
         logger.exception("Coordinator failed for project %d", project_id)

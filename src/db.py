@@ -15,6 +15,42 @@ from sqlalchemy.ext.asyncio import (
 
 from src.project.config import get_settings
 
+# ── LangGraph Checkpoint ────────────────────────────────────
+
+_checkpointer = None
+_checkpoint_conn = None
+
+
+def _pg_conn_string() -> str:
+    """Derive a plain psycopg connection string from the SQLAlchemy URL."""
+    settings = get_settings()
+    url = settings.database.postgres_url
+    # SQLAlchemy: postgresql+psycopg://... → psycopg needs: postgresql://...
+    return url.replace("postgresql+psycopg://", "postgresql://").replace(
+        "postgresql+asyncpg://", "postgresql://"
+    )
+
+
+async def get_checkpointer():
+    """Return the shared AsyncPostgresSaver singleton.
+
+    Creates a dedicated psycopg async connection (separate from SQLAlchemy pool)
+    and runs setup() to ensure checkpoint tables exist.
+    """
+    global _checkpointer, _checkpoint_conn
+    if _checkpointer is None:
+        from psycopg import AsyncConnection
+        from psycopg.rows import dict_row
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+        _checkpoint_conn = await AsyncConnection.connect(
+            _pg_conn_string(), autocommit=True, prepare_threshold=0, row_factory=dict_row
+        )
+        _checkpointer = AsyncPostgresSaver(conn=_checkpoint_conn)
+        await _checkpointer.setup()
+    return _checkpointer
+
+
 # ── PostgreSQL ──────────────────────────────────────────────
 
 _engine: AsyncEngine | None = None
@@ -91,7 +127,11 @@ async def init_db() -> None:
 
 async def close_db() -> None:
     """Clean up connections on shutdown."""
-    global _engine, _redis, _session_factory
+    global _engine, _redis, _session_factory, _checkpointer, _checkpoint_conn
+    if _checkpoint_conn:
+        await _checkpoint_conn.close()
+        _checkpoint_conn = None
+        _checkpointer = None
     if _engine:
         await _engine.dispose()
         _engine = None

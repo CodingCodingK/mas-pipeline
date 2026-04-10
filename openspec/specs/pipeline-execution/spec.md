@@ -1,31 +1,28 @@
-## ADDED Requirements
-
+## Purpose
+Defines the execute_pipeline function that runs a pipeline end-to-end via LangGraph StateGraph, including hook lifecycle, checkpointing, and result reporting.
+## Requirements
 ### Requirement: execute_pipeline function signature
-`execute_pipeline(pipeline_name: str, run_id: str, project_id: int, user_input: str, permission_mode: PermissionMode = PermissionMode.NORMAL)` SHALL load the pipeline YAML, execute all nodes, and return results. The function SHALL NOT create a WorkflowRun — the caller provides a valid run_id. It SHALL fire PipelineStart hook at the beginning and PipelineEnd hook at the end. The `permission_mode` parameter SHALL default to `PermissionMode.NORMAL` (this is the only place in the codebase with a default value for permission_mode).
+`execute_pipeline(pipeline_name: str, run_id: str, project_id: int, user_input: str, permission_mode: PermissionMode = PermissionMode.NORMAL)` SHALL load the pipeline YAML, execute all nodes via LangGraph StateGraph, and return results. The function SHALL NOT create a WorkflowRun — the caller provides a valid run_id. It SHALL fire PipelineStart hook at the beginning and PipelineEnd hook at the end. The `permission_mode` parameter SHALL default to `PermissionMode.NORMAL` (this is the only place in the codebase with a default value for permission_mode).
 
 #### Scenario: Successful execution
 - **WHEN** execute_pipeline is called with a valid pipeline_name and run_id
-- **THEN** it SHALL load the pipeline, execute all nodes, and return a PipelineResult with status='completed'
+- **THEN** it SHALL build a LangGraph StateGraph via build_graph, invoke it with initial PipelineState, and return a PipelineResult with status='completed'
 
-#### Scenario: Pipeline YAML not found
-- **WHEN** pipeline_name does not correspond to a file in the pipelines directory
-- **THEN** it SHALL raise FileNotFoundError
+#### Scenario: Pipeline with interrupt returns paused
+- **WHEN** execute_pipeline runs a pipeline where a node has interrupt: true
+- **THEN** it SHALL return a PipelineResult with status='paused' and paused_at set to the interrupting node name
 
 #### Scenario: PipelineStart hook fires at beginning
 - **WHEN** execute_pipeline is called
-- **THEN** a PipelineStart hook event SHALL fire with payload containing pipeline_name, run_id, project_id, user_input before any node execution begins
+- **THEN** a PipelineStart hook event SHALL fire before graph.invoke()
 
 #### Scenario: PipelineEnd hook fires on completion
-- **WHEN** pipeline execution finishes (success or failure)
-- **THEN** a PipelineEnd hook event SHALL fire with payload containing pipeline_name, run_id, status, error
+- **WHEN** pipeline execution finishes (success, failure, or pause)
+- **THEN** a PipelineEnd hook event SHALL fire with the appropriate status
 
-#### Scenario: Permission mode passed to all nodes
+#### Scenario: Permission mode passed through state
 - **WHEN** execute_pipeline is called with permission_mode=STRICT
-- **THEN** every node's create_agent call SHALL receive permission_mode=STRICT
-
-#### Scenario: Default permission mode is NORMAL
-- **WHEN** execute_pipeline is called without specifying permission_mode
-- **THEN** all nodes SHALL use PermissionMode.NORMAL
+- **THEN** PipelineState.permission_mode SHALL be "STRICT" and every node SHALL use it
 
 ### Requirement: WorkflowRun status updates during execution
 execute_pipeline SHALL update the WorkflowRun status: pending→running at start, running→completed or running→failed at end, using the existing `update_run_status` and `finish_run` functions.
@@ -39,19 +36,15 @@ execute_pipeline SHALL update the WorkflowRun status: pending→running at start
 - **THEN** the WorkflowRun SHALL transition pending→running→failed with finished_at set
 
 ### Requirement: Reactive scheduling — ready nodes start immediately
-The engine SHALL maintain three sets: pending (not started), running (in progress), completed (done). When a node's all input names exist in node_outputs, it SHALL be started immediately via asyncio.create_task. The engine SHALL use asyncio.wait(return_when=FIRST_COMPLETED) to wait for any running node to finish.
+LangGraph StateGraph SHALL handle scheduling: nodes whose dependencies are satisfied SHALL be executed. For fan-out topologies, LangGraph's native parallel execution SHALL run independent nodes concurrently.
 
 #### Scenario: Independent nodes run in parallel
 - **WHEN** nodes A and B have no input (both are entry nodes)
-- **THEN** both SHALL be started at the same time
+- **THEN** LangGraph SHALL execute both concurrently
 
 #### Scenario: Dependent node waits for upstream
 - **WHEN** node C has input [findings] and node A produces findings
-- **THEN** node C SHALL NOT start until node A completes and its output is stored
-
-#### Scenario: Unrelated slow node does not block
-- **WHEN** node A (slow) and node B (fast) are both entry nodes, node C depends only on B
-- **THEN** node C SHALL start as soon as B completes, without waiting for A
+- **THEN** LangGraph SHALL NOT execute node C until node A completes
 
 ### Requirement: Node execution via create_agent and agent_loop
 Each node SHALL be executed by calling `create_agent(role, task_description, project_id, run_id, abort_signal, permission_mode)` followed by `run_agent_to_completion(state)`. The exit reason SHALL be read from `state.exit_reason`. The final output SHALL be extracted using `extract_final_output(state.messages)`.
@@ -124,3 +117,15 @@ Pipeline YAML files SHALL be resolved from a `pipelines/` directory relative to 
 #### Scenario: Resolve pipeline path
 - **WHEN** execute_pipeline is called with pipeline_name='blog_generation'
 - **THEN** it SHALL load from `pipelines/blog_generation.yaml`
+
+### Requirement: Internal scheduling replaced by LangGraph
+The while-loop + asyncio.wait scheduling in execute_pipeline SHALL be replaced by LangGraph StateGraph.invoke(). The pending/running/completed set tracking SHALL be removed. LangGraph manages execution order based on the graph topology.
+
+#### Scenario: No while-loop in execute_pipeline
+- **WHEN** execute_pipeline is implemented
+- **THEN** it SHALL NOT contain a while-loop for node scheduling; LangGraph handles this
+
+#### Scenario: Graph invocation with checkpointer
+- **WHEN** execute_pipeline calls graph.invoke()
+- **THEN** it SHALL pass config with thread_id=run_id and use the shared PostgresSaver checkpointer
+
