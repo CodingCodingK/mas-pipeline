@@ -32,3 +32,7 @@ class PermissionChecker:
     def get_deny_rules(self) -> list[PermissionRule]:
         """Return all deny rules (own + inherited) for passing to child agents."""
         return [r for r in self._all_rules if r.action == "deny"]
+
+    def get_rules(self) -> list[PermissionRule]:
+        """Return all active rules (own + inherited) for sandbox policy derivation."""
+        return list(self._all_rules)

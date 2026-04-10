@@ -10,6 +10,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
+from src.sandbox.types import SandboxConfig
+
 # Project root
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 CONFIG_DIR = ROOT_DIR / "config"
@@ -135,6 +137,7 @@ class Settings(BaseModel):
     mcp_servers: dict = {}
     mcp_default_access: str = "all"
     channels: ChannelsConfig = ChannelsConfig()
+    sandbox: SandboxConfig = SandboxConfig()
 
 
 def load_yaml(path: Path) -> dict:

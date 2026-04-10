@@ -7,6 +7,13 @@ import logging
 import os
 import re
 
+from src.sandbox import (
+    SandboxMode,
+    get_sandbox_mode,
+    is_wrapper_failure,
+    policy_from_permission_rules,
+    wrap_command,
+)
 from src.tools.base import Tool, ToolContext, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -84,6 +91,14 @@ class ShellTool(Tool):
                 "type": "integer",
                 "description": f"Timeout in seconds (default {_DEFAULT_TIMEOUT}).",
             },
+            "dangerously_disable_sandbox": {
+                "type": "boolean",
+                "description": (
+                    "If true, run the command outside the sandbox. Requires explicit "
+                    "user approval in NORMAL/STRICT permission modes. Use only for "
+                    "operations like 'apt install' that need full system access."
+                ),
+            },
         },
         "required": ["command"],
     }
@@ -101,18 +116,42 @@ class ShellTool(Tool):
     async def call(self, params: dict, context: ToolContext) -> ToolResult:
         command: str = params["command"]
         timeout: int = params.get("timeout", _DEFAULT_TIMEOUT)
+        disable_sandbox: bool = bool(params.get("dangerously_disable_sandbox", False))
 
         # Append pwd to capture cwd after command (including cd effects).
         # Use a sentinel line so we can split command output from the pwd result.
         wrapped = f'{command}\necho "{self._CWD_SENTINEL}"\npwd'
 
+        # Decide sandbox mode for this call.
+        mode = SandboxMode.PASSTHROUGH if disable_sandbox else get_sandbox_mode()
+        use_wrapper = mode in (SandboxMode.LINUX_BWRAP, SandboxMode.MACOS_SBX)
+
         try:
-            proc = await asyncio.create_subprocess_shell(
-                wrapped,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=self._cwd,
-            )
+            if use_wrapper:
+                # Build a sandbox policy from the agent's active permission rules.
+                rules = []
+                if context.permission_checker is not None:
+                    rules = context.permission_checker.get_rules()
+                policy = policy_from_permission_rules(rules)
+                # Always allow writes to the current cwd — otherwise even `touch foo`
+                # in the project would fail. Permission deny rules still apply
+                # because they're checked before the tool runs.
+                if self._cwd not in policy.writable_paths:
+                    policy.writable_paths.append(self._cwd)
+                argv = wrap_command(["bash", "-c", wrapped], mode, policy)
+                proc = await asyncio.create_subprocess_exec(
+                    *argv,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=self._cwd,
+                )
+            else:
+                proc = await asyncio.create_subprocess_shell(
+                    wrapped,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=self._cwd,
+                )
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout
             )
@@ -154,8 +193,16 @@ class ShellTool(Tool):
             output = output[:_MAX_OUTPUT_CHARS] + "\n[truncated]"
             truncated = True
 
+        metadata: dict = {
+            "exit_code": exit_code,
+            "truncated": truncated,
+            "sandbox_mode": mode.value,
+        }
+        if exit_code != 0 and is_wrapper_failure(stderr, exit_code):
+            metadata["wrapper_failure"] = True
+
         return ToolResult(
             output=output,
             success=exit_code == 0,
-            metadata={"exit_code": exit_code, "truncated": truncated},
+            metadata=metadata,
         )

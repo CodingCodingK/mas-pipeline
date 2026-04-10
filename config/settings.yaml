@@ -54,3 +54,7 @@ server:
   host: 0.0.0.0
   port: 8000
   reload: true
+
+sandbox:
+  enabled: true              # Wrap ShellTool commands with bwrap/sandbox-exec when available
+  fail_if_unavailable: false # If true, refuse to start when the platform sandbox binary is missing

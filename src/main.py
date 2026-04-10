@@ -18,6 +18,7 @@ from fastapi import FastAPI
 
 from src.db import close_db, init_db
 from src.project.config import get_settings
+from src.sandbox import init_sandbox
 
 
 @asynccontextmanager
@@ -25,6 +26,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup / shutdown lifecycle."""
     settings = get_settings()
     print(f"[mas-pipeline] Starting with model tiers: {settings.models}")
+    sandbox_mode = init_sandbox(settings.sandbox)
+    print(f"[mas-pipeline] Sandbox mode: {sandbox_mode.value}")
     await init_db()
     print("[mas-pipeline] Database connections verified")
     yield
