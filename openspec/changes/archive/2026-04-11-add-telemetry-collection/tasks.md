@@ -32,8 +32,8 @@
 
 ## 3. Emission wiring
 
-- [ ] 3.1 `src/agent/loop.py` — inject collector via module-level `get_collector()`; after each `call_llm` response (success path) call `collector.record_llm_call(provider, model, usage, latency_ms, finish_reason)`; on exception path call `record_llm_call` with `finish_reason='error'` + `record_error('llm', exc)` then re-raise
-- [ ] 3.2 `src/hooks/runner.py` — in PostToolUse dispatch: after tool completes, call `collector.record_tool_call(tool_name, args_preview, duration_ms, success, error)`; after every hook returns, call `collector.record_hook_event(hook_type, decision, latency_ms, rule_matched)`
+- [x] 3.1 `src/agent/loop.py` — inject collector via module-level `get_collector()`; after each `call_llm` response (success path) call `collector.record_llm_call(provider, model, usage, latency_ms, finish_reason)`; on exception path call `record_llm_call` with `finish_reason='error'` + `record_error('llm', exc)` then re-raise
+- [x] 3.2 `src/hooks/runner.py` — in PostToolUse dispatch: after tool completes, call `collector.record_tool_call(tool_name, args_preview, duration_ms, success, error)`; after every hook returns, call `collector.record_hook_event(hook_type, decision, latency_ms, rule_matched)`
 - [x] 3.3 `src/engine/session_runner.py` — wrap the turn-body in `collector.turn_context(agent_role, input_preview)` async context manager (new helper on collector) that sets `current_turn_id`, captures `started_at`/`input_preview`, and on exit captures `ended_at`/`output_preview` and emits the `agent_turn` event; add `record_session_event` calls at `__init__` (`created`), first message (`first_message`), and all exit paths (`idle_exit`/`max_age_exit`/`shutdown_exit`)
 - [x] 3.4 `src/tools/builtins/spawn_agent.py` — generate `spawn_id`; call `collector.record_agent_spawn(parent_role, child_role, task_preview, spawn_id)`; `current_spawn_id.set(spawn_id)` immediately before `asyncio.create_task` for the child so the task context inherits it; child's first `agent_turn` automatically picks it up in its own `turn_context`
 - [x] 3.5 `src/engine/pipeline.py` — at pipeline start, set `current_run_id` contextvar and emit `pipeline_start`; at each node boundary emit `node_start`/`node_end`/`node_failed`; at pause/resume/end emit corresponding events; reset `current_run_id` on `pipeline_end`
@@ -90,5 +90,5 @@
 - [x] 7.2 Run the full telemetry test surface: `test_telemetry_collector.py`, `test_telemetry_contextvars.py`, `test_telemetry_query.py`, `test_telemetry_api.py`, `test_telemetry_integration.py`, `test_telemetry_rest_integration.py`
 - [x] 7.3 Run regression suite (task 6.1–6.4)
 - [x] 7.4 Update `.plan/progress.md`: mark Phase 6.2 done, set next step = Phase 6.3 (Notify)
-- [ ] 7.5 `git add` all new files + modified files + openspec change dir; commit
-- [ ] 7.6 Run `/openspec-archive-change add-telemetry-collection`
+- [x] 7.5 `git add` all new files + modified files + openspec change dir; commit
+- [x] 7.6 Run `/openspec-archive-change add-telemetry-collection`
