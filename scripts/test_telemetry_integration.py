@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import text
 
 from src.db import get_db, get_session_factory
+from src.events.bus import EventBus
 from src.llm.adapter import Usage
 from src.telemetry import (
     NullTelemetryCollector,
@@ -124,8 +125,10 @@ async def _fetch_events(run_id: str) -> list[dict]:
 
 
 def _make_collector(**overrides) -> TelemetryCollector:
+    bus = EventBus(queue_size=100)
     return TelemetryCollector(
         db_session_factory=get_session_factory(),
+        bus=bus,
         enabled=overrides.pop("enabled", True),
         preview_length=30,
         batch_size=overrides.pop("batch_size", 5),
@@ -294,7 +297,7 @@ async def test_disabled_writes_nothing() -> None:
 
 async def test_null_collector_interchangeable() -> None:
     print("\n=== NullTelemetryCollector safe to use ===")
-    null = NullTelemetryCollector()
+    null = NullTelemetryCollector(bus=EventBus())
     await null.start()
     null.record_hook_event(hook_type="X", decision="allow", latency_ms=1)
     async with null.turn_context(

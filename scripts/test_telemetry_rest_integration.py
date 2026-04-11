@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from src.db import get_db, get_session_factory
+from src.events.bus import EventBus
 from src.llm.adapter import Usage
 from src.telemetry import (
     TelemetryCollector,
@@ -114,8 +115,10 @@ async def _seed_run(run_id: str, session_id: int) -> None:
       - agent_turn researcher + llm_call
       - pipeline_start + pipeline_end
     """
+    bus = EventBus(queue_size=50)
     collector = TelemetryCollector(
         db_session_factory=get_session_factory(),
+        bus=bus,
         enabled=True,
         preview_length=30,
         batch_size=2,

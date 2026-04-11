@@ -33,6 +33,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from src.events.bus import EventBus
 from src.telemetry.events import (
     EVENT_TYPE_AGENT_SPAWN,
     EVENT_TYPE_AGENT_TURN,
@@ -69,8 +70,6 @@ current_project_id: contextvars.ContextVar[int | None] = contextvars.ContextVar(
     "telemetry_current_project_id", default=None
 )
 
-_DROP_WARN_INTERVAL_SEC = 30.0
-
 
 def _truncate(s: Any, length: int) -> str:
     if s is None:
@@ -99,6 +98,7 @@ class TelemetryCollector:
     def __init__(
         self,
         db_session_factory,
+        bus: EventBus,
         *,
         enabled: bool = True,
         preview_length: int = 30,
@@ -114,15 +114,15 @@ class TelemetryCollector:
         self._max_queue_size = max_queue_size
         self._pricing_table_path = pricing_table_path
         self._db_session_factory = db_session_factory
+        self._bus = bus
 
         self._pricing = load_pricing(pricing_table_path)
 
-        self._queue: asyncio.Queue[TelemetryEvent] = asyncio.Queue(maxsize=max_queue_size)
+        self._queue: asyncio.Queue[TelemetryEvent] = bus.subscribe(
+            "telemetry", max_size=max_queue_size
+        )
         self._writer_task: asyncio.Task | None = None
         self._stopping = asyncio.Event()
-
-        self._drop_count = 0
-        self._last_drop_warn_at = 0.0
 
         self._turn_index: dict[int, int] = {}
 
@@ -175,26 +175,8 @@ class TelemetryCollector:
     # ── Enqueue path ───────────────────────────────────────────────
 
     def _enqueue(self, event: TelemetryEvent) -> None:
-        try:
-            self._queue.put_nowait(event)
-        except asyncio.QueueFull:
-            try:
-                _ = self._queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-            try:
-                self._queue.put_nowait(event)
-            except asyncio.QueueFull:
-                return
-            self._drop_count += 1
-            now = time.monotonic()
-            if now - self._last_drop_warn_at >= _DROP_WARN_INTERVAL_SEC:
-                logger.warning(
-                    "telemetry: queue full, dropped %d events since last warning",
-                    self._drop_count,
-                )
-                self._drop_count = 0
-                self._last_drop_warn_at = now
+        # Bus handles fan-out, drop-oldest overflow, and rate-limited warnings.
+        self._bus.emit(event)
 
     # ── Public record_* API ────────────────────────────────────────
 
@@ -565,9 +547,14 @@ class TelemetryCollector:
 
 
 class NullTelemetryCollector(TelemetryCollector):
-    """Stand-in that never records or persists anything."""
+    """Stand-in that never records or persists anything.
 
-    def __init__(self) -> None:
+    Does NOT subscribe to the bus — a disabled collector should place zero
+    load on event fan-out. The `bus` kwarg is accepted for signature
+    compatibility and ignored.
+    """
+
+    def __init__(self, bus: EventBus | None = None) -> None:
         self._enabled = False
         self._preview_length = 0
         self._batch_size = 0
@@ -575,12 +562,11 @@ class NullTelemetryCollector(TelemetryCollector):
         self._max_queue_size = 0
         self._pricing_table_path = ""
         self._db_session_factory = None
+        self._bus = bus  # retained but unused; we do not subscribe
         self._pricing = PricingTable()
         self._queue = asyncio.Queue(maxsize=1)
         self._writer_task = None
         self._stopping = asyncio.Event()
-        self._drop_count = 0
-        self._last_drop_warn_at = 0.0
         self._turn_index = {}
 
     async def start(self) -> None:

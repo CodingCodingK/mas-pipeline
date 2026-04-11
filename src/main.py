@@ -21,6 +21,7 @@ from fastapi import APIRouter, FastAPI
 from src.api.projects import router as projects_router
 from src.api.runs import router as runs_router
 from src.api.sessions import router as sessions_router
+from src.events.bus import EventBus
 from src.telemetry.api import admin_router as telemetry_admin_router
 from src.telemetry.api import router as telemetry_router
 from src.db import close_db, init_db
@@ -63,12 +64,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     _check_worker_concurrency()
 
-    # Telemetry collector
+    # Event bus must exist before any consumer subscribes.
     tele_cfg = settings.telemetry
+    bus = EventBus(queue_size=tele_cfg.max_queue_size)
+    app.state.event_bus = bus
+
+    # Telemetry collector subscribes to the bus as "telemetry".
     if tele_cfg.enabled:
         from src.db import get_session_factory
         collector = TelemetryCollector(
             db_session_factory=get_session_factory(),
+            bus=bus,
             enabled=True,
             preview_length=tele_cfg.preview_length,
             batch_size=tele_cfg.batch_size,
@@ -78,7 +84,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         await collector.start()
     else:
-        collector = NullTelemetryCollector()
+        collector = NullTelemetryCollector(bus=bus)
     set_collector(collector)
     app.state.telemetry_collector = collector
 
@@ -95,6 +101,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await collector.stop()
         except Exception:
             logger.exception("telemetry collector stop failed")
+
+        # Close the bus after all consumers have stopped draining.
+        try:
+            bus.close()
+        except Exception:
+            logger.exception("event bus close failed")
 
         # Graceful SessionRunner shutdown.
         try:

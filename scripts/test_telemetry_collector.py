@@ -15,12 +15,19 @@ from unittest.mock import AsyncMock, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from src.events.bus import EventBus
 from src.telemetry.collector import (
     NullTelemetryCollector,
     TelemetryCollector,
     current_project_id,
 )
 from src.telemetry.pricing import ModelPricing, PricingTable, load_pricing
+
+
+def _make_collector(**kwargs) -> TelemetryCollector:
+    """Test helper: construct a fresh EventBus + TelemetryCollector pair."""
+    bus = EventBus(queue_size=kwargs.get("max_queue_size", 10000))
+    return TelemetryCollector(bus=bus, **kwargs)
 
 passed = 0
 failed = 0
@@ -76,7 +83,7 @@ def make_factory(captured: list[list[dict]]):
 async def _t_batch_at_size():
     print("\n=== batch_size triggers flush ===")
     captured: list[list[dict]] = []
-    collector = TelemetryCollector(
+    collector = _make_collector(
         db_session_factory=make_factory(captured),
         enabled=True,
         batch_size=5,
@@ -103,7 +110,7 @@ async def _t_batch_at_size():
 async def _t_flush_on_interval():
     print("\n=== flush_interval triggers flush ===")
     captured: list[list[dict]] = []
-    collector = TelemetryCollector(
+    collector = _make_collector(
         db_session_factory=make_factory(captured),
         enabled=True,
         batch_size=1000,
@@ -131,7 +138,7 @@ async def _t_flush_on_interval():
 async def _t_drop_oldest():
     print("\n=== drop-oldest when queue full ===")
     captured: list[list[dict]] = []
-    collector = TelemetryCollector(
+    collector = _make_collector(
         db_session_factory=make_factory(captured),
         enabled=True,
         batch_size=1000,
@@ -146,9 +153,10 @@ async def _t_drop_oldest():
             collector.record_hook_event(
                 hook_type="PreToolUse", decision="allow", latency_ms=i
             )
+        # Drop-oldest is enforced by the event bus. After 10 emits into a
+        # subscriber with maxsize=3, the queue stays capped at 3.
         check("queue capped at max_queue_size",
               collector._queue.qsize() == 3)
-        check("drop counter tracked", collector._drop_count >= 1)
     finally:
         current_project_id.reset(token)
 
@@ -156,7 +164,7 @@ async def _t_drop_oldest():
 async def _t_graceful_drain():
     print("\n=== graceful shutdown drain ===")
     captured: list[list[dict]] = []
-    collector = TelemetryCollector(
+    collector = _make_collector(
         db_session_factory=make_factory(captured),
         enabled=True,
         batch_size=1000,
@@ -181,7 +189,7 @@ async def _t_graceful_drain():
 async def _t_disabled_zero_queue():
     print("\n=== disabled collector skips queue ===")
     captured: list[list[dict]] = []
-    collector = TelemetryCollector(
+    collector = _make_collector(
         db_session_factory=make_factory(captured),
         enabled=False,
         pricing_table_path="nonexistent.yaml",
@@ -199,7 +207,7 @@ async def _t_disabled_zero_queue():
 
 async def _t_null_interchangeable():
     print("\n=== NullTelemetryCollector interchangeable ===")
-    null = NullTelemetryCollector()
+    null = NullTelemetryCollector(bus=EventBus())
     null.record_llm_call(
         provider="anthropic", model="claude-opus-4-6",
         usage=MagicMock(input_tokens=10, output_tokens=5),
