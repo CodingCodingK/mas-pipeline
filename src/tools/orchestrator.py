@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from src.telemetry import get_collector
 from src.tools.base import Tool, ToolContext, ToolResult
 from src.tools.params import cast_params, validate_params
 
@@ -146,6 +148,9 @@ class ToolOrchestrator:
                 params = pre_result.updated_input
 
         # --- Execute tool ---
+        collector = get_collector()
+        tool_started_at = time.monotonic()
+        tool_exc: Exception | None = None
         try:
             result = await tool.call(params, context)
         except Exception as exc:
@@ -154,6 +159,20 @@ class ToolOrchestrator:
                 output=f"Error executing '{tc.name}': {exc}",
                 success=False,
             )
+            tool_exc = exc
+
+        duration_ms = int((time.monotonic() - tool_started_at) * 1000)
+        collector.record_tool_call(
+            tool_name=tc.name,
+            args_preview=params,
+            duration_ms=duration_ms,
+            success=result.success,
+            error_type=type(tool_exc).__name__ if tool_exc else None,
+            error_msg=(str(tool_exc) if tool_exc
+                       else (result.output if not result.success else None)),
+        )
+        if tool_exc is not None:
+            collector.record_error(source="tool", exc=tool_exc)
 
         # --- PostToolUse / PostToolUseFailure hooks ---
         if self.hook_runner:

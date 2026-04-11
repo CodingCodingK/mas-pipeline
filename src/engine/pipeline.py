@@ -235,6 +235,7 @@ async def execute_pipeline(
     from src.mcp.manager import MCPManager
     from src.permissions.types import PermissionMode
     from src.project.config import get_settings
+    from src.telemetry import current_project_id, current_run_id, get_collector
 
     if permission_mode is None:
         permission_mode = PermissionMode.NORMAL
@@ -249,7 +250,14 @@ async def execute_pipeline(
     if settings.mcp_servers:
         await mcp_manager.start(settings.mcp_servers)
 
+    collector = get_collector()
+    run_id_token = current_run_id.set(run_id)
+    project_id_token = current_project_id.set(project_id)
     try:
+        collector.record_pipeline_event(
+            pipeline_event_type="pipeline_start",
+            pipeline_name=pipeline_name,
+        )
         # Fire PipelineStart hook
         await _fire_pipeline_hook(hook_runner, "pipeline_start", {
             "pipeline_name": pipeline_name,
@@ -393,6 +401,12 @@ async def execute_pipeline(
         )
 
     finally:
+        collector.record_pipeline_event(
+            pipeline_event_type="pipeline_end",
+            pipeline_name=pipeline_name,
+        )
+        current_run_id.reset(run_id_token)
+        current_project_id.reset(project_id_token)
         await mcp_manager.shutdown()
         unregister_abort_signal(run_id)
 
@@ -421,6 +435,7 @@ async def resume_pipeline(
     from src.mcp.manager import MCPManager
     from src.permissions.types import PermissionMode
     from src.project.config import get_settings
+    from src.telemetry import current_project_id, current_run_id, get_collector
 
     if permission_mode is None:
         permission_mode = PermissionMode.NORMAL
@@ -442,7 +457,14 @@ async def resume_pipeline(
     if settings.mcp_servers:
         await mcp_manager.start(settings.mcp_servers)
 
+    collector = get_collector()
+    run_id_token = current_run_id.set(run_id)
+    project_id_token = current_project_id.set(project_id)
     try:
+        collector.record_pipeline_event(
+            pipeline_event_type="pipeline_resumed",
+            pipeline_name=pipeline_name,
+        )
         run_id_int = await _resolve_run_id_int(run_id)
         abort_signal = asyncio.Event()
 
@@ -532,6 +554,12 @@ async def resume_pipeline(
         )
 
     finally:
+        collector.record_pipeline_event(
+            pipeline_event_type="pipeline_end",
+            pipeline_name=pipeline_name,
+        )
+        current_run_id.reset(run_id_token)
+        current_project_id.reset(project_id_token)
         await mcp_manager.shutdown()
 
 

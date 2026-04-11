@@ -177,28 +177,23 @@ CREATE INDEX idx_chat_sessions_channel ON chat_sessions(channel);
 CREATE INDEX idx_chat_sessions_project ON chat_sessions(project_id);
 
 -- ============================================================
--- telemetry_events
+-- telemetry_events — Phase 6.2 polymorphic single-table store
 -- ============================================================
 CREATE TABLE telemetry_events (
-    id              SERIAL PRIMARY KEY,
-    run_id          VARCHAR(255) NOT NULL,
-    event_type      VARCHAR(100) NOT NULL,
-    agent_id        VARCHAR(255),
-    agent_role      VARCHAR(255),
-    model           VARCHAR(255),
-    input_tokens    INTEGER,
-    output_tokens   INTEGER,
-    thinking_tokens INTEGER,
-    tool_name       VARCHAR(255),
-    tool_params     JSONB,
-    tool_success    BOOLEAN,
-    latency_ms      INTEGER,
-    metadata        JSONB DEFAULT '{}',
-    created_at      TIMESTAMP DEFAULT NOW()
+    id           BIGSERIAL PRIMARY KEY,
+    ts           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    event_type   TEXT NOT NULL,
+    project_id   INTEGER NOT NULL,
+    run_id       TEXT,
+    session_id   INTEGER,
+    agent_role   TEXT,
+    payload      JSONB NOT NULL
 );
-CREATE INDEX idx_telemetry_run ON telemetry_events(run_id);
-CREATE INDEX idx_telemetry_type ON telemetry_events(event_type);
-CREATE INDEX idx_telemetry_created ON telemetry_events(created_at);
+CREATE INDEX idx_telemetry_run_ts ON telemetry_events(run_id, ts) WHERE run_id IS NOT NULL;
+CREATE INDEX idx_telemetry_session_ts ON telemetry_events(session_id, ts) WHERE session_id IS NOT NULL;
+CREATE INDEX idx_telemetry_event_ts ON telemetry_events(event_type, ts);
+CREATE INDEX idx_telemetry_project_ts ON telemetry_events(project_id, ts);
+CREATE INDEX idx_telemetry_payload_gin ON telemetry_events USING GIN (payload);
 
 -- ============================================================
 -- Seed: default user

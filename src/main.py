@@ -21,6 +21,8 @@ from fastapi import APIRouter, FastAPI
 from src.api.projects import router as projects_router
 from src.api.runs import router as runs_router
 from src.api.sessions import router as sessions_router
+from src.telemetry.api import admin_router as telemetry_admin_router
+from src.telemetry.api import router as telemetry_router
 from src.db import close_db, init_db
 from src.engine.session_registry import (
     _idle_gc_task,
@@ -29,6 +31,11 @@ from src.engine.session_registry import (
 )
 from src.project.config import get_settings
 from src.sandbox import init_sandbox
+from src.telemetry import (
+    NullTelemetryCollector,
+    TelemetryCollector,
+    set_collector,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +63,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     _check_worker_concurrency()
 
+    # Telemetry collector
+    tele_cfg = settings.telemetry
+    if tele_cfg.enabled:
+        from src.db import get_session_factory
+        collector = TelemetryCollector(
+            db_session_factory=get_session_factory(),
+            enabled=True,
+            preview_length=tele_cfg.preview_length,
+            batch_size=tele_cfg.batch_size,
+            flush_interval_sec=tele_cfg.flush_interval_sec,
+            max_queue_size=tele_cfg.max_queue_size,
+            pricing_table_path=tele_cfg.pricing_table_path,
+        )
+        await collector.start()
+    else:
+        collector = NullTelemetryCollector()
+    set_collector(collector)
+    app.state.telemetry_collector = collector
+
     # Phase 6.1 background tasks: idle GC + cross-process LISTEN.
     gc_task = asyncio.create_task(_idle_gc_task(), name="session-registry-gc")
     listen_task = asyncio.create_task(
@@ -65,6 +91,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        try:
+            await collector.stop()
+        except Exception:
+            logger.exception("telemetry collector stop failed")
+
         # Graceful SessionRunner shutdown.
         try:
             await shutdown_all(timeout_seconds=5.0)
@@ -95,6 +126,8 @@ api_router = APIRouter(prefix="/api")
 api_router.include_router(projects_router)
 api_router.include_router(sessions_router)
 api_router.include_router(runs_router)
+api_router.include_router(telemetry_router)
+api_router.include_router(telemetry_admin_router)
 app.include_router(api_router)
 
 

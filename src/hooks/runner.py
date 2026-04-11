@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 
 from src.hooks.config import HookConfig  # noqa: TC001 — used at runtime
 from src.hooks.executors import execute_command_hook, execute_prompt_hook
 from src.hooks.types import HookEvent, HookEventType, HookResult, aggregate_results
+from src.telemetry import get_collector
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,8 @@ class HookRunner:
         if not matching:
             return HookResult()
 
+        started_at = time.monotonic()
+
         # Execute all matching hooks in parallel
         tasks = [self._execute_one(event, hook.config) for hook in matching]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -68,7 +72,15 @@ class HookRunner:
             else:
                 hook_results.append(r)
 
-        return aggregate_results(hook_results)
+        aggregated = aggregate_results(hook_results)
+        latency_ms = int((time.monotonic() - started_at) * 1000)
+        get_collector().record_hook_event(
+            hook_type=event.event_type.value,
+            decision=aggregated.action or "allow",
+            latency_ms=latency_ms,
+            rule_matched=aggregated.reason,
+        )
+        return aggregated
 
     def _get_matching(self, event: HookEvent) -> list[_RegisteredHook]:
         """Filter registered hooks by event type and matcher."""

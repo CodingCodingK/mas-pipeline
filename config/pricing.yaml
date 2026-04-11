@@ -1,0 +1,59 @@
+# Telemetry pricing table — USD per 1K tokens.
+#
+# Schema:
+#   models:
+#     "{provider}/{model_name}":
+#       input_usd_per_1k_tokens: float
+#       output_usd_per_1k_tokens: float
+#       cache_read_discount_factor: float  # fraction of input price charged for cache-read tokens (0.1 = 10%)
+#
+# To add a new model: append a new entry under `models:` using the same schema.
+# Run `POST /api/admin/telemetry/reload-pricing` to pick up changes without restarting.
+# Missing-model events record cost_usd=null (logged once per unseen pair).
+#
+# Prices are best-effort snapshots; maintainers should update them as vendors change rates.
+
+models:
+  # ── Anthropic ──────────────────────────────────────────
+  "anthropic/claude-opus-4-6":
+    input_usd_per_1k_tokens: 0.015
+    output_usd_per_1k_tokens: 0.075
+    cache_read_discount_factor: 0.1
+  "anthropic/claude-sonnet-4-6":
+    input_usd_per_1k_tokens: 0.003
+    output_usd_per_1k_tokens: 0.015
+    cache_read_discount_factor: 0.1
+  "anthropic/claude-haiku-4-5":
+    input_usd_per_1k_tokens: 0.0008
+    output_usd_per_1k_tokens: 0.004
+    cache_read_discount_factor: 0.1
+
+  # ── OpenAI ─────────────────────────────────────────────
+  "openai/gpt-4o":
+    input_usd_per_1k_tokens: 0.0025
+    output_usd_per_1k_tokens: 0.010
+    cache_read_discount_factor: 0.5
+  "openai/gpt-4o-mini":
+    input_usd_per_1k_tokens: 0.00015
+    output_usd_per_1k_tokens: 0.0006
+    cache_read_discount_factor: 0.5
+
+  # ── DeepSeek ───────────────────────────────────────────
+  "deepseek/deepseek-chat":
+    input_usd_per_1k_tokens: 0.00014
+    output_usd_per_1k_tokens: 0.00028
+    cache_read_discount_factor: 0.1
+  "deepseek/deepseek-reasoner":
+    input_usd_per_1k_tokens: 0.00055
+    output_usd_per_1k_tokens: 0.0022
+    cache_read_discount_factor: 0.25
+
+  # ── Qwen ───────────────────────────────────────────────
+  "qwen/qwen-max":
+    input_usd_per_1k_tokens: 0.0016
+    output_usd_per_1k_tokens: 0.0064
+    cache_read_discount_factor: 0.4
+  "qwen/qwen-plus":
+    input_usd_per_1k_tokens: 0.0004
+    output_usd_per_1k_tokens: 0.0012
+    cache_read_discount_factor: 0.4

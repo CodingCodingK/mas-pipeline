@@ -49,6 +49,7 @@ class PipelineState(TypedDict):
 def _make_node_fn(
     node: NodeDefinition,
     *,
+    pipeline_name: str,
     run_id: str,
     run_id_int: int,
     abort_signal: asyncio.Event,
@@ -79,18 +80,28 @@ def _make_node_fn(
         if node.output in current_outputs:
             return {}
 
+        import time as _time
+
         from src.engine.pipeline import _build_task_description, _run_node
         from src.engine.run import emit_pipeline_event
+        from src.telemetry import get_collector
 
         # Build task description from upstream outputs
         task_desc = _build_task_description(node, state["outputs"], state["user_input"])
 
+        collector = get_collector()
         emit_pipeline_event(state["run_id"], {
             "type": "node_start",
             "node": node.name,
             "role": node.role,
             "output_name": node.output,
         })
+        collector.record_pipeline_event(
+            pipeline_event_type="node_start",
+            pipeline_name=pipeline_name,
+            node_name=node.name,
+        )
+        node_started_at = _time.monotonic()
 
         try:
             output = await _run_node(
@@ -103,6 +114,7 @@ def _make_node_fn(
                 permission_mode=permission_mode,
                 mcp_manager=mcp_manager,
             )
+            duration_ms = int((_time.monotonic() - node_started_at) * 1000)
             emit_pipeline_event(state["run_id"], {
                 "type": "node_end",
                 "node": node.name,
@@ -110,14 +122,29 @@ def _make_node_fn(
                 "output_length": len(output) if output else 0,
                 "output_preview": (output[:200] if output else ""),
             })
+            collector.record_pipeline_event(
+                pipeline_event_type="node_end",
+                pipeline_name=pipeline_name,
+                node_name=node.name,
+                duration_ms=duration_ms,
+            )
             return {"outputs": {node.output: output}}
         except Exception as exc:
+            duration_ms = int((_time.monotonic() - node_started_at) * 1000)
             logger.error("Node '%s' failed: %s", node.name, exc)
             emit_pipeline_event(state["run_id"], {
                 "type": "node_failed",
                 "node": node.name,
                 "error": str(exc),
             })
+            collector.record_pipeline_event(
+                pipeline_event_type="node_failed",
+                pipeline_name=pipeline_name,
+                node_name=node.name,
+                duration_ms=duration_ms,
+                error_msg=str(exc),
+            )
+            collector.record_error(source="pipeline", exc=exc)
             return {"error": str(exc)}
 
     node_fn.__name__ = node.name
@@ -179,6 +206,7 @@ def build_graph(
     for node in pipeline_def.nodes:
         fn = _make_node_fn(
             node,
+            pipeline_name=pipeline_def.name,
             run_id=run_id,
             run_id_int=run_id_int,
             abort_signal=abort_signal,

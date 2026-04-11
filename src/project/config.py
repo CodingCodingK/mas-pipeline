@@ -128,6 +128,15 @@ class ServerConfig(BaseModel):
     reload: bool = True
 
 
+class TelemetryConfig(BaseModel):
+    enabled: bool = True
+    preview_length: int = 30
+    batch_size: int = 100
+    flush_interval_sec: float = 2.0
+    max_queue_size: int = 10000
+    pricing_table_path: str = "config/pricing.yaml"
+
+
 class Settings(BaseModel):
     default_user: DefaultUserConfig = DefaultUserConfig()
     models: ModelsConfig = ModelsConfig()
@@ -147,6 +156,7 @@ class Settings(BaseModel):
     mcp_default_access: str = "all"
     channels: ChannelsConfig = ChannelsConfig()
     sandbox: SandboxConfig = SandboxConfig()
+    telemetry: TelemetryConfig = TelemetryConfig()
     # Phase 6.1: REST API auth — empty list disables auth (development mode)
     api_keys: list[str] = []
 

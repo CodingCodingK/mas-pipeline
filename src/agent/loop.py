@@ -9,6 +9,7 @@ For callers that don't need streaming, use run_agent_to_completion(state).
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import AsyncIterator  # noqa: TC003 — used at runtime for generator return type
 
 from src.agent.compact import (
@@ -23,8 +24,16 @@ from src.agent.state import AgentState, ExitReason
 from src.llm.adapter import LLMResponse, ToolCallRequest, Usage
 from src.project.config import get_settings
 from src.streaming.events import StreamEvent
+from src.telemetry import get_collector
 
 logger = logging.getLogger(__name__)
+
+
+def _infer_provider(adapter: object) -> str:
+    """Derive a short provider name from the adapter's module path."""
+    module = type(adapter).__module__
+    # e.g. "src.llm.anthropic" -> "anthropic", "src.llm.openai_compat" -> "openai_compat"
+    return module.rsplit(".", 1)[-1]
 
 
 def _is_context_length_error(exc: Exception) -> bool:
@@ -69,6 +78,10 @@ async def agent_loop(state: AgentState) -> AsyncIterator[StreamEvent]:
             return
 
         # Call LLM (streaming)
+        collector = get_collector()
+        provider_name = _infer_provider(state.adapter)
+        model_name = getattr(state.adapter, "model", "") or ""
+        llm_started_at = time.monotonic()
         try:
             # Accumulate response from stream
             content_parts: list[str] = []
@@ -106,10 +119,30 @@ async def agent_loop(state: AgentState) -> AsyncIterator[StreamEvent]:
 
                 elif event.type == "error":
                     yield event
+                    collector.record_llm_call(
+                        provider=provider_name,
+                        model=model_name,
+                        usage=usage,
+                        latency_ms=int((time.monotonic() - llm_started_at) * 1000),
+                        finish_reason="error",
+                    )
+                    collector.record_error(
+                        source="llm", error_type="LLMStreamError",
+                        message=event.content or "",
+                    )
                     state.exit_reason = ExitReason.ERROR
                     return
 
         except Exception as exc:
+            collector.record_llm_call(
+                provider=provider_name,
+                model=model_name,
+                usage=usage,
+                latency_ms=int((time.monotonic() - llm_started_at) * 1000),
+                finish_reason="error",
+            )
+            collector.record_error(source="llm", exc=exc)
+
             # --- reactive compact ---
             if _is_context_length_error(exc) and not state.has_attempted_reactive_compact:
                 logger.info("Context length exceeded, attempting reactive compact")
@@ -127,6 +160,15 @@ async def agent_loop(state: AgentState) -> AsyncIterator[StreamEvent]:
             yield StreamEvent(type="error", content=str(exc))
             state.exit_reason = ExitReason.ERROR
             return
+
+        # Success path — record llm_call telemetry.
+        collector.record_llm_call(
+            provider=provider_name,
+            model=model_name,
+            usage=usage,
+            latency_ms=int((time.monotonic() - llm_started_at) * 1000),
+            finish_reason=finish_reason,
+        )
 
         # Build and append assistant message
         response = LLMResponse(

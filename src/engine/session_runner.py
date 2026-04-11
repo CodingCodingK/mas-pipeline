@@ -19,6 +19,7 @@ from src.agent.loop import agent_loop
 from src.agent.state import ExitReason
 from src.project.config import get_settings
 from src.streaming.events import StreamEvent
+from src.telemetry import get_collector
 
 if TYPE_CHECKING:
     from src.agent.state import AgentState
@@ -65,6 +66,15 @@ class SessionRunner:
         self._task: asyncio.Task | None = None
         self._exit_requested = False
         self._messages_persisted_count = 0  # how many of state.messages already in PG
+        self._channel: str | None = None  # captured during start() from ChatSession
+
+        get_collector().record_session_event(
+            session_event_type="created",
+            channel=None,
+            mode=mode,
+            project_id=project_id,
+            session_id=session_id,
+        )
 
     # ── Lifecycle ───────────────────────────────────────────
 
@@ -180,6 +190,10 @@ class SessionRunner:
         settings = get_settings()
         idle_timeout = settings.session.idle_timeout_seconds
         max_age = timedelta(seconds=settings.session.max_age_seconds)
+        collector = get_collector()
+        role = _MODE_TO_ROLE[self.mode]
+        exit_reason_kind = "shutdown_exit"
+        first_message_seen = False
 
         try:
             while True:
@@ -187,16 +201,45 @@ class SessionRunner:
                 #    (cheap path: only run if our in-memory tail is shorter than PG)
                 await self._sync_inbound_from_pg()
 
-                # 2. Drive agent_loop until it exits a turn
-                async for event in agent_loop(self.state):  # type: ignore[arg-type]
-                    self._fanout(event)
-                    self._touch()
+                # Detect first user message for session_event emission.
+                if not first_message_seen and self.state is not None:
+                    for msg in self.state.messages:
+                        if msg.get("role") == "user" and msg.get("content"):
+                            first_message_seen = True
+                            collector.record_session_event(
+                                session_event_type="first_message",
+                                channel=self._channel,
+                                mode=self.mode,
+                                project_id=self.project_id,
+                                session_id=self.session_id,
+                            )
+                            break
+
+                # 2. Drive agent_loop inside a telemetry turn context
+                input_preview = self._latest_user_preview()
+                pre_turn_len = len(self.state.messages) if self.state else 0
+                async with collector.turn_context(
+                    agent_role=role,
+                    input_preview=input_preview,
+                    session_id=self.session_id,
+                    project_id=self.project_id,
+                ) as turn_capture:
+                    async for event in agent_loop(self.state):  # type: ignore[arg-type]
+                        self._fanout(event)
+                        self._touch()
+                    turn_capture["output"] = self._latest_assistant_preview()
+                    turn_capture["message_count_delta"] = (
+                        (len(self.state.messages) if self.state else 0) - pre_turn_len
+                    )
+                    if self.state is not None and self.state.exit_reason is not None:
+                        turn_capture["stop_reason"] = self.state.exit_reason.value
 
                 # 3. Persist any new in-memory messages added during the turn
                 await self._persist_new_messages(append_message)
 
                 # 4. Decide whether to wait or exit
                 if self._exit_requested:
+                    exit_reason_kind = "shutdown_exit"
                     break
 
                 if self.state.running_agent_count > 0:  # type: ignore[union-attr]
@@ -207,20 +250,53 @@ class SessionRunner:
                 # Idle: wait with timeout
                 exited = await self._wait_for_wakeup(idle_timeout=idle_timeout, max_age=max_age)
                 if exited:
+                    # _wait_for_wakeup returns True on either idle or max_age;
+                    # disambiguate based on age.
+                    if datetime.utcnow() - self.created_at >= max_age:
+                        exit_reason_kind = "max_age_exit"
+                    else:
+                        exit_reason_kind = "idle_exit"
                     break
 
         except asyncio.CancelledError:
             logger.info("SessionRunner %d cancelled", self.session_id)
+            exit_reason_kind = "shutdown_exit"
             raise
         except Exception:
             logger.exception("SessionRunner %d crashed", self.session_id)
+            exit_reason_kind = "shutdown_exit"
         finally:
             for t in list(self.child_tasks):
                 if not t.done():
                     t.cancel()
             self.child_tasks.clear()
+            get_collector().record_session_event(
+                session_event_type=exit_reason_kind,
+                channel=self._channel,
+                mode=self.mode,
+                project_id=self.project_id,
+                session_id=self.session_id,
+            )
             await deregister(self.session_id)
-            logger.info("SessionRunner %d exited", self.session_id)
+            logger.info("SessionRunner %d exited (%s)", self.session_id, exit_reason_kind)
+
+    def _latest_user_preview(self) -> str:
+        if self.state is None:
+            return ""
+        for msg in reversed(self.state.messages):
+            if msg.get("role") == "user":
+                content = msg.get("content") or ""
+                return content if isinstance(content, str) else str(content)
+        return ""
+
+    def _latest_assistant_preview(self) -> str:
+        if self.state is None:
+            return ""
+        for msg in reversed(self.state.messages):
+            if msg.get("role") == "assistant":
+                content = msg.get("content") or ""
+                return content if isinstance(content, str) else str(content)
+        return ""
 
     async def _wait_for_wakeup(
         self,

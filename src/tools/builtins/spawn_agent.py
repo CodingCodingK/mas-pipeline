@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 
+from src.telemetry import current_spawn_id, get_collector
 from src.tools.base import Tool, ToolContext, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -107,6 +109,24 @@ class SpawnAgentTool(Tool):
             "parent_run_id": context.run_id,
         })
 
+        # Telemetry: emit agent_spawn; derive parent_role from parent runner if
+        # present, else fall back to "unknown". Set current_spawn_id so the
+        # child task inherits it and its first agent_turn records
+        # spawned_by_spawn_id.
+        spawn_id = uuid.uuid4().hex
+        parent_runner = self._lookup_parent_runner(context)
+        parent_role = "unknown"
+        if parent_runner is not None:
+            from src.engine.session_runner import _MODE_TO_ROLE
+            parent_role = _MODE_TO_ROLE.get(parent_runner.mode, "unknown")
+        get_collector().record_agent_spawn(
+            parent_role=parent_role,
+            child_role=role,
+            task_preview=task_description,
+            spawn_id=spawn_id,
+        )
+        current_spawn_id.set(spawn_id)
+
         # Launch background coroutine. Track it on the parent SessionRunner so
         # graceful shutdown can cancel it.
         task = asyncio.create_task(
@@ -120,7 +140,6 @@ class SpawnAgentTool(Tool):
             name=f"spawn_agent:{role}:{agent_run_id}",
         )
 
-        parent_runner = self._lookup_parent_runner(context)
         if parent_runner is not None:
             parent_runner.child_tasks.add(task)
             task.add_done_callback(parent_runner.child_tasks.discard)

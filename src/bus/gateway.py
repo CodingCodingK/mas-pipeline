@@ -122,8 +122,21 @@ class Gateway:
                 reply_to=msg.metadata.get("message_id"),
             ))
 
-        except Exception:
+        except Exception as exc:
             logger.exception("Gateway error processing message from %s", msg.session_key)
+            try:
+                from src.telemetry import get_collector
+                get_collector().record_error(
+                    source="gateway",
+                    error_type=type(exc).__name__,
+                    message=str(exc).splitlines()[0][:500] if str(exc) else "",
+                    context={
+                        "session_key": msg.session_key,
+                        "inbound_topic": msg.channel,
+                    },
+                )
+            except Exception:
+                logger.debug("Failed to record gateway error telemetry", exc_info=True)
             try:
                 await self._bus.publish_outbound(OutboundMessage(
                     channel=msg.channel,
