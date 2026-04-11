@@ -203,8 +203,18 @@ async def list_runs(project_id: int) -> list[WorkflowRun]:
         return list(result.scalars().all())
 
 
-async def update_run_status(run_id: str, status: RunStatus) -> WorkflowRun:
+async def update_run_status(
+    run_id: str,
+    status: RunStatus,
+    *,
+    result_payload: dict | None = None,
+) -> WorkflowRun:
     """Update a workflow run's status with state machine validation.
+
+    When `result_payload` is provided, it is shallow-merged into
+    `WorkflowRun.metadata_` inside the same session as the status transition.
+    The merge reassigns a fresh dict so SQLAlchemy flushes the JSONB column;
+    an in-place `dict.update` would be silently dropped at flush time.
 
     Raises InvalidTransitionError if the transition is not allowed.
     Raises ValueError if run_id not found.
@@ -219,13 +229,25 @@ async def update_run_status(run_id: str, status: RunStatus) -> WorkflowRun:
 
         _validate_transition(run.status, status)
         run.status = status.value
+        if result_payload is not None:
+            existing = run.metadata_ or {}
+            run.metadata_ = {**existing, **result_payload}
 
     await _sync_to_redis(run)
     return run
 
 
-async def finish_run(run_id: str, status: RunStatus) -> WorkflowRun:
+async def finish_run(
+    run_id: str,
+    status: RunStatus,
+    *,
+    result_payload: dict | None = None,
+) -> WorkflowRun:
     """Set a workflow run to a terminal state with finished_at.
+
+    When `result_payload` is provided, it is shallow-merged into
+    `WorkflowRun.metadata_` atomically with the status transition and
+    finished_at write.
 
     Only COMPLETED and FAILED are accepted. Raises ValueError otherwise.
     Raises InvalidTransitionError if the transition is not allowed.
@@ -247,6 +269,9 @@ async def finish_run(run_id: str, status: RunStatus) -> WorkflowRun:
         _validate_transition(run.status, status)
         run.status = status.value
         run.finished_at = func.now()
+        if result_payload is not None:
+            existing = run.metadata_ or {}
+            run.metadata_ = {**existing, **result_payload}
         await session.flush()
         await session.refresh(run)
 

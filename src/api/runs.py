@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -26,12 +25,11 @@ from src.engine.run import (
     update_run_status,
 )
 from src.models import WorkflowRun
+from src.storage import resolve_pipeline_file
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[Depends(require_api_key)])
-
-_PIPELINES_DIR = Path(__file__).resolve().parent.parent.parent / "pipelines"
 
 
 # ── Models ──────────────────────────────────────────────────
@@ -64,18 +62,6 @@ class RunDetail(BaseModel):
 
 
 # ── Helpers ─────────────────────────────────────────────────
-
-
-def _pipeline_yaml_path(name: str) -> Path | None:
-    """Resolve a pipeline name to its YAML file, accepting bare or _generation suffix."""
-    candidates = [
-        _PIPELINES_DIR / f"{name}.yaml",
-        _PIPELINES_DIR / f"{name}_generation.yaml",
-    ]
-    for p in candidates:
-        if p.is_file():
-            return p
-    return None
 
 
 def _to_detail(run: WorkflowRun) -> RunDetail:
@@ -115,11 +101,14 @@ async def trigger_pipeline(
     the run progresses (Phase 6.1: status-only — full StreamEvent fan-out
     requires deeper engine surgery, tracked in deployment risks).
     """
-    yaml_path = _pipeline_yaml_path(pipeline_name)
-    if yaml_path is None:
+    try:
+        yaml_path = resolve_pipeline_file(pipeline_name, project_id)
+    except FileNotFoundError:
         raise HTTPException(
             status_code=404, detail=f"pipeline not found: {pipeline_name}"
         )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
     run = await create_run(
         project_id=project_id,

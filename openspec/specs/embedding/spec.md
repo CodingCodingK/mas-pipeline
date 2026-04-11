@@ -1,7 +1,8 @@
-## ADDED Requirements
-
+## Purpose
+Defines the `embed` function used by the RAG ingest pipeline to produce vector representations for text chunks.
+## Requirements
 ### Requirement: embed produces vectors for text inputs
-`embed(texts)` SHALL call the configured embedding API and return a list of float vectors, one per input text.
+`embed(texts, *, progress_callback=None)` SHALL call the configured embedding API and return a list of float vectors, one per input text. If `progress_callback` is provided, it SHALL be awaited after each batch (every 100 texts) with `{"event": "embedding_progress", "done": <int>, "total": <int>}`.
 
 #### Scenario: Single text embedding
 - **WHEN** embed is called with `["Hello world"]`
@@ -15,6 +16,14 @@
 - **WHEN** embed is called with an empty list
 - **THEN** it SHALL return an empty list without making any API call
 
+#### Scenario: Progress callback receives per-batch ticks
+- **WHEN** embed is called with 250 texts and a `progress_callback`
+- **THEN** the callback SHALL be awaited 3 times with `done` values `100`, `200`, `250` and `total=250`
+
+#### Scenario: No callback is backward compatible
+- **WHEN** embed is called without a `progress_callback` argument
+- **THEN** it SHALL behave identically to the prior version (no callbacks invoked)
+
 ### Requirement: Embedding uses configured model and provider
 embed SHALL read `settings.embedding.model`, `settings.embedding.provider`, and `settings.embedding.dimensions` to configure API calls.
 
@@ -25,3 +34,4 @@ embed SHALL read `settings.embedding.model`, `settings.embedding.provider`, and 
 #### Scenario: Dimensions match configuration
 - **WHEN** embed returns vectors
 - **THEN** each vector length SHALL equal `settings.embedding.dimensions`
+

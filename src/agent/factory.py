@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -22,15 +21,13 @@ from src.permissions.rules import load_permission_rules
 from src.permissions.types import PermissionMode, PermissionRule
 from src.project.config import get_settings
 from src.skills.loader import load_skills
+from src.storage import resolve_agent_file
 from src.tools.base import ToolContext
 from src.tools.builtins import AGENT_DISALLOWED_TOOLS, get_all_tools
 from src.tools.orchestrator import ToolOrchestrator
 from src.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
-
-# Default agents directory relative to project root
-_AGENTS_DIR = Path(__file__).resolve().parent.parent.parent / "agents"
 
 
 async def create_agent(
@@ -62,11 +59,8 @@ async def create_agent(
     Returns:
         A fully configured AgentState ready for agent_loop().
     """
-    # 1. Parse role file
-    role_path = _AGENTS_DIR / f"{role}.md"
-    if not role_path.is_file():
-        raise FileNotFoundError(f"Role file not found: {role_path}")
-
+    # 1. Parse role file (layered resolver: project override wins, falls back to global)
+    role_path = resolve_agent_file(role, project_id)
     metadata, role_body = parse_role_file(str(role_path))
 
     # 2. Route adapter from model_tier

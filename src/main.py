@@ -18,10 +18,18 @@ from typing import AsyncIterator
 
 from fastapi import APIRouter, FastAPI
 
+from src.api.agents import router as agents_router
+from src.api.export import router as export_router
+from src.api.files import router as files_router
+from src.api.jobs import router as jobs_router
+from src.api.pipelines import router as pipelines_router
+from src.api.knowledge import router as knowledge_router
 from src.api.projects import router as projects_router
 from src.api.runs import router as runs_router
 from src.api.sessions import router as sessions_router
 from src.events.bus import EventBus
+from src.jobs import get_registry as get_jobs_registry
+from src.jobs.registry import start_cleanup_loop as start_jobs_cleanup_loop
 from src.notify import NullNotifier, Notifier, set_notifier
 from src.notify.api import router as notify_router
 from src.notify.channels import DiscordChannel, SseChannel, WechatChannel
@@ -121,6 +129,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _listen_session_wakeup(), name="session-registry-listen"
     )
 
+    # Phase 6.4: in-memory job registry + periodic cleanup of finished jobs.
+    jobs_registry = get_jobs_registry()
+    jobs_cleanup_task = asyncio.create_task(
+        start_jobs_cleanup_loop(jobs_registry),
+        name="jobs-registry-cleanup",
+    )
+
     try:
         yield
     finally:
@@ -146,9 +161,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.exception("shutdown_all failed")
 
-        for task in (gc_task, listen_task):
+        for task in (gc_task, listen_task, jobs_cleanup_task):
             task.cancel()
-        for task in (gc_task, listen_task):
+        for task in (gc_task, listen_task, jobs_cleanup_task):
             try:
                 await task
             except (asyncio.CancelledError, Exception):
@@ -173,6 +188,12 @@ api_router.include_router(runs_router)
 api_router.include_router(telemetry_router)
 api_router.include_router(telemetry_admin_router)
 api_router.include_router(notify_router)
+api_router.include_router(files_router)
+api_router.include_router(knowledge_router)
+api_router.include_router(jobs_router)
+api_router.include_router(export_router)
+api_router.include_router(agents_router)
+api_router.include_router(pipelines_router)
 app.include_router(api_router)
 
 

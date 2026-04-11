@@ -75,7 +75,7 @@ async def test_mcp_all():
         mock_settings.hooks = {}
         mock_settings.mcp_default_access = "all"
 
-        with patch("src.agent.factory._AGENTS_DIR", role_path.parent), \
+        with patch("src.storage.layered._ROOT", Path(tmp)), \
              patch("src.agent.factory.route", return_value=MagicMock()), \
              patch("src.agent.factory.get_settings", return_value=mock_settings):
             from src.agent.factory import create_agent
@@ -124,7 +124,7 @@ async def test_mcp_whitelist():
         mock_settings.hooks = {}
         mock_settings.mcp_default_access = "all"
 
-        with patch("src.agent.factory._AGENTS_DIR", role_path.parent), \
+        with patch("src.storage.layered._ROOT", Path(tmp)), \
              patch("src.agent.factory.route", return_value=MagicMock()), \
              patch("src.agent.factory.get_settings", return_value=mock_settings):
             from src.agent.factory import create_agent
@@ -170,7 +170,7 @@ async def test_mcp_none():
         mock_settings.hooks = {}
         mock_settings.mcp_default_access = "none"
 
-        with patch("src.agent.factory._AGENTS_DIR", role_path.parent), \
+        with patch("src.storage.layered._ROOT", Path(tmp)), \
              patch("src.agent.factory.route", return_value=MagicMock()), \
              patch("src.agent.factory.get_settings", return_value=mock_settings):
             from src.agent.factory import create_agent
@@ -209,7 +209,7 @@ async def test_no_mcp():
         role_path.parent.mkdir()
         role_path.write_text(role_content, encoding="utf-8")
 
-        with patch("src.agent.factory._AGENTS_DIR", role_path.parent), \
+        with patch("src.storage.layered._ROOT", Path(tmp)), \
              patch("src.agent.factory.route", return_value=MagicMock()):
             from src.agent.factory import create_agent
             state = await create_agent(

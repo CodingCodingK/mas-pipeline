@@ -10,10 +10,9 @@ from pathlib import Path
 
 import yaml
 
-logger = logging.getLogger(__name__)
+from src.storage import resolve_pipeline_file
 
-# Pipelines directory relative to project root
-_PIPELINES_DIR = Path(__file__).resolve().parent.parent.parent / "pipelines"
+logger = logging.getLogger(__name__)
 
 
 # ── Data structures ───────────────────────────────────────
@@ -240,8 +239,8 @@ async def execute_pipeline(
     if permission_mode is None:
         permission_mode = PermissionMode.NORMAL
 
-    # Load pipeline
-    yaml_path = str(_PIPELINES_DIR / f"{pipeline_name}.yaml")
+    # Load pipeline via layered resolver (project override wins over global)
+    yaml_path = str(resolve_pipeline_file(pipeline_name, project_id))
     pipeline = load_pipeline(yaml_path)
 
     # Start MCP servers
@@ -310,7 +309,17 @@ async def execute_pipeline(
             final_state = await compiled.ainvoke(initial_state, config=config)
         except Exception as exc:
             logger.exception("Pipeline graph execution failed")
-            await finish_run(run_id, RunStatus.FAILED)
+            await finish_run(
+                run_id,
+                RunStatus.FAILED,
+                result_payload={
+                    "final_output": "",
+                    "outputs": {},
+                    "failed_node": None,
+                    "error": str(exc),
+                    "paused_at": None,
+                },
+            )
 
             await _fire_pipeline_hook(hook_runner, "pipeline_end", {
                 "pipeline_name": pipeline_name,
@@ -339,7 +348,17 @@ async def execute_pipeline(
             paused_node = graph_state.next[0]
             # Strip _interrupt suffix to get the original node name
             paused_at = paused_node.replace("_interrupt", "")
-            await update_run_status(run_id, RunStatus.PAUSED)
+            await update_run_status(
+                run_id,
+                RunStatus.PAUSED,
+                result_payload={
+                    "final_output": "",
+                    "outputs": final_state.get("outputs", {}),
+                    "failed_node": None,
+                    "error": None,
+                    "paused_at": paused_at,
+                },
+            )
 
             await _fire_pipeline_hook(hook_runner, "pipeline_end", {
                 "pipeline_name": pipeline_name,
@@ -364,13 +383,6 @@ async def execute_pipeline(
         node_outputs = final_state.get("outputs", {})
         error = final_state.get("error")
 
-        if error:
-            status = "failed"
-            await finish_run(run_id, RunStatus.FAILED)
-        else:
-            status = "completed"
-            await finish_run(run_id, RunStatus.COMPLETED)
-
         # Find terminal node output
         terminal_outputs = _find_terminal_outputs(pipeline)
         final_output = ""
@@ -378,6 +390,21 @@ async def execute_pipeline(
             if out_name in node_outputs:
                 final_output = node_outputs[out_name]
                 break
+
+        result_payload = {
+            "final_output": final_output,
+            "outputs": node_outputs,
+            "failed_node": None,
+            "error": error,
+            "paused_at": None,
+        }
+
+        if error:
+            status = "failed"
+            await finish_run(run_id, RunStatus.FAILED, result_payload=result_payload)
+        else:
+            status = "completed"
+            await finish_run(run_id, RunStatus.COMPLETED, result_payload=result_payload)
 
         # Fire PipelineEnd hook
         await _fire_pipeline_hook(hook_runner, "pipeline_end", {
@@ -440,8 +467,8 @@ async def resume_pipeline(
     if permission_mode is None:
         permission_mode = PermissionMode.NORMAL
 
-    # Load pipeline definition
-    yaml_path = str(_PIPELINES_DIR / f"{pipeline_name}.yaml")
+    # Load pipeline definition (layered resolver)
+    yaml_path = str(resolve_pipeline_file(pipeline_name, project_id))
     pipeline = load_pipeline(yaml_path)
 
     # Verify checkpoint exists
@@ -489,7 +516,17 @@ async def resume_pipeline(
             )
         except Exception as exc:
             logger.exception("Pipeline resume failed")
-            await finish_run(run_id, RunStatus.FAILED)
+            await finish_run(
+                run_id,
+                RunStatus.FAILED,
+                result_payload={
+                    "final_output": "",
+                    "outputs": {},
+                    "failed_node": None,
+                    "error": str(exc),
+                    "paused_at": None,
+                },
+            )
             return PipelineResult(
                 run_id=run_id,
                 status="failed",
@@ -503,7 +540,17 @@ async def resume_pipeline(
         if graph_state.next:
             paused_node = graph_state.next[0]
             paused_at = paused_node.replace("_interrupt", "")
-            await update_run_status(run_id, RunStatus.PAUSED)
+            await update_run_status(
+                run_id,
+                RunStatus.PAUSED,
+                result_payload={
+                    "final_output": "",
+                    "outputs": final_state.get("outputs", {}),
+                    "failed_node": None,
+                    "error": None,
+                    "paused_at": paused_at,
+                },
+            )
 
             await _fire_pipeline_hook(hook_runner, "pipeline_end", {
                 "pipeline_name": pipeline_name,
@@ -524,19 +571,27 @@ async def resume_pipeline(
         node_outputs = final_state.get("outputs", {})
         error = final_state.get("error")
 
-        if error:
-            status = "failed"
-            await finish_run(run_id, RunStatus.FAILED)
-        else:
-            status = "completed"
-            await finish_run(run_id, RunStatus.COMPLETED)
-
         terminal_outputs = _find_terminal_outputs(pipeline)
         final_output = ""
         for out_name in terminal_outputs:
             if out_name in node_outputs:
                 final_output = node_outputs[out_name]
                 break
+
+        result_payload = {
+            "final_output": final_output,
+            "outputs": node_outputs,
+            "failed_node": None,
+            "error": error,
+            "paused_at": None,
+        }
+
+        if error:
+            status = "failed"
+            await finish_run(run_id, RunStatus.FAILED, result_payload=result_payload)
+        else:
+            status = "completed"
+            await finish_run(run_id, RunStatus.COMPLETED, result_payload=result_payload)
 
         await _fire_pipeline_hook(hook_runner, "pipeline_end", {
             "pipeline_name": pipeline_name,
@@ -598,7 +653,7 @@ async def get_pipeline_status(run_id: str) -> dict:
                 from src.engine.graph import build_graph
 
                 pipeline = load_pipeline(
-                    str(_PIPELINES_DIR / f"{run.pipeline}.yaml")
+                    str(resolve_pipeline_file(run.pipeline, run.project_id))
                 )
                 checkpointer = await get_checkpointer()
                 abort_signal = asyncio.Event()

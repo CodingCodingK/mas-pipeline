@@ -47,7 +47,7 @@ async def test_agent_with_skills():
         role_path.write_text(role_content, encoding="utf-8")
 
         # Mock _AGENTS_DIR to use tmp
-        with patch("src.agent.factory._AGENTS_DIR", role_path.parent):
+        with patch("src.storage.layered._ROOT", Path(tmp)):
             # Mock route to return a dummy adapter
             mock_adapter = MagicMock()
             with patch("src.agent.factory.route", return_value=mock_adapter):
@@ -94,7 +94,7 @@ async def test_agent_no_skills():
         role_path.parent.mkdir()
         role_path.write_text(role_content, encoding="utf-8")
 
-        with patch("src.agent.factory._AGENTS_DIR", role_path.parent):
+        with patch("src.storage.layered._ROOT", Path(tmp)):
             mock_adapter = MagicMock()
             with patch("src.agent.factory.route", return_value=mock_adapter):
                 from src.agent.factory import create_agent
@@ -157,7 +157,7 @@ async def test_only_always_skills():
         (agents_dir / "coder.md").write_text(role_content, encoding="utf-8")
 
         with (
-            patch("src.agent.factory._AGENTS_DIR", agents_dir),
+            patch("src.storage.layered._ROOT", Path(tmp)),
             patch("src.skills.loader._SKILLS_DIR", skills_dir),
         ):
             mock_adapter = MagicMock()
