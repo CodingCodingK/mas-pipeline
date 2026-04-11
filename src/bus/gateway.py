@@ -1,27 +1,38 @@
-"""Gateway: consumes inbound messages, runs agent per message, publishes outbound."""
+"""Gateway: consumes inbound messages, dispatches them through SessionRunner,
+publishes outbound replies once the runner finishes the turn."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING
 
-from src.bus.bus import MessageBus
 from src.bus.message import InboundMessage, OutboundMessage
-from src.bus.session import get_session_history, refresh_session, resolve_session
+from src.bus.session import refresh_session, resolve_session
+from src.engine.session_registry import get_or_create_runner
 from src.session.manager import append_message
 
+if TYPE_CHECKING:
+    from src.bus.bus import MessageBus
+
 logger = logging.getLogger(__name__)
+
+# Max time to wait for a SessionRunner to emit a `done` event for a bus turn.
+# Deadman switch for crashed/stuck runners — see design.md Decision 4.
+_BUS_SUBSCRIBER_TIMEOUT_SECONDS = 300.0
+
+_NO_RESPONSE_PLACEHOLDER = "(no response)"
 
 
 class Gateway:
     """Per-message dispatch gateway.
 
-    For each InboundMessage:
+    For each non-`/resume` InboundMessage:
     1. Resolve ChatSession (Redis cache -> PG)
-    2. Load conversation history
-    3. Create agent, inject history, run to completion
-    4. Save messages, publish outbound response
+    2. Append user message to Conversation
+    3. Obtain (or create) the SessionRunner for that session
+    4. Subscribe, wake the runner, wait for its `done` event
+    5. Read the latest assistant message and publish one OutboundMessage
     """
 
     def __init__(
@@ -29,16 +40,13 @@ class Gateway:
         bus: MessageBus,
         project_id: int,
         role: str = "assistant",
-        max_history: int = 50,
         session_ttl_hours: int = 24,
     ) -> None:
         self._bus = bus
         self._project_id = project_id
-        self._role = role
-        self._max_history = max_history
+        self._role = role  # kept for API compat; runner picks role via session.mode
         self._session_ttl_hours = session_ttl_hours
         self._running = False
-        self._session_locks: dict[str, asyncio.Lock] = {}
         self._active_tasks: set[asyncio.Task] = set()
 
     async def run(self) -> None:
@@ -54,32 +62,24 @@ class Gateway:
             except TimeoutError:
                 continue
 
-            # Launch task for cross-session concurrency
+            # Launch task for cross-session concurrency. Intra-session ordering
+            # is guaranteed by SessionRunner's main loop, not by gateway locks.
             task = asyncio.create_task(self._dispatch(msg))
             self._active_tasks.add(task)
             task.add_done_callback(self._active_tasks.discard)
 
     async def stop(self) -> None:
         self._running = False
-        # Wait for in-flight tasks
         if self._active_tasks:
             await asyncio.gather(*self._active_tasks, return_exceptions=True)
 
     async def _dispatch(self, msg: InboundMessage) -> None:
-        """Process one inbound message with per-session locking."""
-        key = msg.session_key
-
-        # Per-session serial lock
-        if key not in self._session_locks:
-            self._session_locks[key] = asyncio.Lock()
-
-        async with self._session_locks[key]:
-            await self._process_message(msg)
+        await self._process_message(msg)
 
     async def _process_message(self, msg: InboundMessage) -> None:
-        """Core message processing: session -> history -> agent -> save -> respond."""
+        """Dispatch one inbound message through the SessionRunner registry."""
         try:
-            # Check for /resume command before normal processing
+            # /resume is pipeline-level and must bypass the SessionRunner path.
             if msg.content.strip().startswith("/resume"):
                 await self._handle_resume(msg)
                 return
@@ -93,19 +93,23 @@ class Gateway:
                 ttl_hours=self._session_ttl_hours,
             )
 
-            # 2. Load history
-            history = await get_session_history(
-                session.conversation_id, self._max_history
+            # 2. Append the user message so the runner will pick it up on wakeup.
+            user_message: dict = {"role": "user", "content": msg.content}
+            await append_message(session.conversation_id, user_message)
+
+            # 3. Obtain runner (shared with REST path via the registry)
+            runner = await get_or_create_runner(
+                session_id=session.id,
+                mode=session.mode,
+                project_id=session.project_id,
+                conversation_id=session.conversation_id,
             )
 
-            # 3. Create agent and run
-            response_text = await self._run_agent(history, msg.content)
-
-            # 4. Save messages to conversation
-            user_msg = {"role": "user", "content": msg.content}
-            assistant_msg = {"role": "assistant", "content": response_text}
-            await append_message(session.conversation_id, user_msg)
-            await append_message(session.conversation_id, assistant_msg)
+            # 4. Subscribe, wake, buffer text deltas until `done`
+            response_text = await self._wait_for_turn(runner, session.id)
+            if response_text is None:
+                # Timeout path — already logged in _wait_for_turn. Drop silently.
+                return
 
             # 5. Refresh session activity
             await refresh_session(msg.session_key, self._session_ttl_hours)
@@ -120,7 +124,6 @@ class Gateway:
 
         except Exception:
             logger.exception("Gateway error processing message from %s", msg.session_key)
-            # Send error response
             try:
                 await self._bus.publish_outbound(OutboundMessage(
                     channel=msg.channel,
@@ -130,36 +133,41 @@ class Gateway:
             except Exception:
                 logger.error("Failed to send error response", exc_info=True)
 
-    async def _run_agent(self, history: list[dict], user_input: str) -> str:
-        """Create agent, inject history, run to completion, extract output."""
-        from src.agent.factory import create_agent
-        from src.agent.loop import run_agent_to_completion
-        from src.permissions.types import PermissionMode
-        from src.tools.builtins.spawn_agent import extract_final_output
+    async def _wait_for_turn(self, runner, session_id: int) -> str | None:
+        """Attach as a subscriber, wake the runner, buffer text until `done`.
 
-        state = await create_agent(
-            role=self._role,
-            task_description=user_input,
-            project_id=self._project_id,
-            run_id="",  # No workflow run for chat mode
-            abort_signal=asyncio.Event(),
-            permission_mode=PermissionMode.BYPASS,
-        )
+        Accumulates `text_delta` events and returns the concatenated text when
+        the terminal `done` event arrives. Returns None if the runner fails to
+        emit `done` within the idle-timeout window.
 
-        # Inject history before the current user message
-        # agent_factory already adds system prompt + current user message
-        # We insert history between system prompt and the last user message
-        if history and len(state.messages) >= 2:
-            # messages[0] = system, messages[-1] = user (current)
-            system_msg = state.messages[0]
-            current_msg = state.messages[-1]
-            state.messages = [system_msg] + history + [current_msg]
-        elif history:
-            state.messages = history + state.messages
-
-        await run_agent_to_completion(state)
-        output = extract_final_output(state.messages)
-        return output or "(no response)"
+        Reading text directly from the event stream avoids racing against
+        `SessionRunner._persist_new_messages`, which runs only AFTER the
+        agent_loop async-for exits — i.e. after `done` has already been
+        fanned out to subscribers.
+        """
+        queue = runner.add_subscriber()
+        buffer: list[str] = []
+        try:
+            runner.notify_new_message()
+            while True:
+                try:
+                    event = await asyncio.wait_for(
+                        queue.get(), timeout=_BUS_SUBSCRIBER_TIMEOUT_SECONDS
+                    )
+                except TimeoutError:
+                    logger.warning(
+                        "Bus subscriber timeout on session %d after %.0fs",
+                        session_id, _BUS_SUBSCRIBER_TIMEOUT_SECONDS,
+                    )
+                    return None
+                if event.type == "text_delta":
+                    if event.content:
+                        buffer.append(event.content)
+                elif event.type == "done":
+                    text = "".join(buffer).strip()
+                    return text or _NO_RESPONSE_PLACEHOLDER
+        finally:
+            runner.remove_subscriber(queue)
 
     async def _handle_resume(self, msg: InboundMessage) -> None:
         """Handle /resume command: find paused pipelines, resume them.
@@ -169,12 +177,7 @@ class Gateway:
             /resume <run_id>     — resume a specific run
             /resume <run_id> <feedback>  — resume with feedback
         """
-        from sqlalchemy import select
-
-        from src.db import get_db
         from src.engine.pipeline import get_pipeline_status, resume_pipeline
-        from src.engine.run import RunStatus
-        from src.models import WorkflowRun
 
         parts = msg.content.strip().split(maxsplit=2)
         # parts[0] = "/resume", parts[1] = run_id (optional), parts[2] = feedback (optional)
