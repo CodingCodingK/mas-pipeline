@@ -36,7 +36,7 @@ from sqlalchemy import delete, select, text
 from src.bus.bus import MessageBus
 from src.bus.gateway import Gateway
 from src.bus.message import InboundMessage
-from src.db import get_db
+from src.db import get_db, get_redis
 from src.engine.session_registry import _session_runners, get_or_create_runner, shutdown_all
 from src.models import ChatSession, Conversation, Project
 from src.session.manager import get_messages
@@ -103,6 +103,10 @@ async def _cleanup() -> None:
         await db.execute(delete(ChatSession).where(ChatSession.channel == "bus_test"))
         if conv_ids:
             await db.execute(delete(Conversation).where(Conversation.id.in_(conv_ids)))
+    redis = get_redis()
+    stale = await redis.keys("chat_session:bus_test:*")
+    if stale:
+        await redis.delete(*stale)
 
 
 async def _ensure_project(project_id: int = 1) -> None:

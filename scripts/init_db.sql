@@ -196,6 +196,18 @@ CREATE INDEX idx_telemetry_project_ts ON telemetry_events(project_id, ts);
 CREATE INDEX idx_telemetry_payload_gin ON telemetry_events USING GIN (payload);
 
 -- ============================================================
+-- user_notify_preferences — Phase 6.3 per-user per-event channel selection
+-- ============================================================
+CREATE TABLE user_notify_preferences (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    channels   JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, event_type)
+);
+CREATE INDEX idx_user_notify_prefs_user ON user_notify_preferences(user_id);
+
+-- ============================================================
 -- Seed: default user
 -- ============================================================
 INSERT INTO users (name, email, config) VALUES

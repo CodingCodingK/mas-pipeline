@@ -137,6 +137,15 @@ class TelemetryConfig(BaseModel):
     pricing_table_path: str = "config/pricing.yaml"
 
 
+class NotifySettings(BaseModel):
+    enabled: bool = True
+    wechat_webhook_url: str | None = None
+    discord_webhook_url: str | None = None
+    sse_queue_size: int = 500
+    sse_heartbeat_sec: int = 15
+    notify_queue_size: int = 5000
+
+
 class Settings(BaseModel):
     default_user: DefaultUserConfig = DefaultUserConfig()
     models: ModelsConfig = ModelsConfig()
@@ -157,6 +166,7 @@ class Settings(BaseModel):
     channels: ChannelsConfig = ChannelsConfig()
     sandbox: SandboxConfig = SandboxConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
+    notify: NotifySettings = NotifySettings()
     # Phase 6.1: REST API auth — empty list disables auth (development mode)
     api_keys: list[str] = []
 

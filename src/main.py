@@ -22,6 +22,9 @@ from src.api.projects import router as projects_router
 from src.api.runs import router as runs_router
 from src.api.sessions import router as sessions_router
 from src.events.bus import EventBus
+from src.notify import NullNotifier, Notifier, set_notifier
+from src.notify.api import router as notify_router
+from src.notify.channels import DiscordChannel, SseChannel, WechatChannel
 from src.telemetry.api import admin_router as telemetry_admin_router
 from src.telemetry.api import router as telemetry_router
 from src.db import close_db, init_db
@@ -88,6 +91,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     set_collector(collector)
     app.state.telemetry_collector = collector
 
+    # Notify layer subscribes to the bus as "notify" after telemetry.
+    notify_cfg = settings.notify
+    notifier: Notifier
+    if notify_cfg.enabled:
+        from src.db import get_session_factory as _get_session_factory
+        session_factory = _get_session_factory()
+        channels = [SseChannel(default_max_size=notify_cfg.sse_queue_size)]
+        if notify_cfg.wechat_webhook_url:
+            channels.append(WechatChannel(notify_cfg.wechat_webhook_url))
+        if notify_cfg.discord_webhook_url:
+            channels.append(DiscordChannel(notify_cfg.discord_webhook_url))
+        notifier = Notifier(
+            bus=bus,
+            channels=channels,
+            rules=None,
+            session_factory=session_factory,
+            queue_size=notify_cfg.notify_queue_size,
+        )
+        await notifier.start()
+    else:
+        notifier = NullNotifier(bus=bus)
+    set_notifier(notifier)
+    app.state.notifier = notifier
+
     # Phase 6.1 background tasks: idle GC + cross-process LISTEN.
     gc_task = asyncio.create_task(_idle_gc_task(), name="session-registry-gc")
     listen_task = asyncio.create_task(
@@ -97,6 +124,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        try:
+            await notifier.stop(timeout_seconds=5.0)
+        except Exception:
+            logger.exception("notifier stop failed")
+
         try:
             await collector.stop()
         except Exception:
@@ -140,6 +172,7 @@ api_router.include_router(sessions_router)
 api_router.include_router(runs_router)
 api_router.include_router(telemetry_router)
 api_router.include_router(telemetry_admin_router)
+api_router.include_router(notify_router)
 app.include_router(api_router)
 
 
