@@ -1,0 +1,18 @@
+pipeline: blog_with_review
+description: 博客生产 + 人工审阅（writer 完成后暂停等待审阅）
+
+nodes:
+  - name: researcher
+    role: researcher
+    output: research
+
+  - name: writer
+    role: writer
+    input: [research]
+    output: draft
+    interrupt: true
+
+  - name: reviewer
+    role: reviewer
+    input: [draft]
+    output: final_post

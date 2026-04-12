@@ -1,10 +1,11 @@
 import { useCallback, useState, useEffect, lazy, Suspense } from "react";
 import { Link } from "react-router-dom";
 import { client, ApiError } from "@/api/client";
-import type { PipelineListResponse, PipelineReadResponse } from "@/api/types";
+import type { AgentListResponse, PipelineListResponse, PipelineReadResponse } from "@/api/types";
 import { useAsync } from "@/hooks/useAsync";
 
 const MonacoEditor = lazy(() => import("@monaco-editor/react"));
+const PipelineGraph = lazy(() => import("@/components/PipelineGraph"));
 
 export default function PipelineEditorPage() {
   const fetchList = useCallback(
@@ -12,6 +13,13 @@ export default function PipelineEditorPage() {
     []
   );
   const { data, error, loading, reload } = useAsync(fetchList, []);
+
+  const fetchAgents = useCallback(
+    () => client.get<AgentListResponse>("/agents"),
+    []
+  );
+  const { data: agentsData } = useAsync(fetchAgents, []);
+  const agentNames = agentsData?.items.map((a) => a.name) ?? [];
 
   const [selected, setSelected] = useState<string | null>(null);
   const [isNew, setIsNew] = useState(false);
@@ -127,6 +135,7 @@ export default function PipelineEditorPage() {
               name={selected ?? ""}
               isNew={isNew}
               initialContent={isNew ? initialContent : undefined}
+              agentNames={agentNames}
               onSaved={() => {
                 setSelected(null);
                 setIsNew(false);
@@ -154,12 +163,14 @@ function EditorPanel({
   name,
   isNew,
   initialContent,
+  agentNames,
   onSaved,
   onClose,
 }: {
   name: string;
   isNew: boolean;
   initialContent?: string;
+  agentNames: string[];
   onSaved: () => void;
   onClose: () => void;
 }) {
@@ -276,6 +287,18 @@ function EditorPanel({
               padding: { top: 8 },
             }}
           />
+        </Suspense>
+      </div>
+
+      <div className="mt-4 rounded border border-slate-200 overflow-hidden" style={{ height: 380 }}>
+        <Suspense
+          fallback={
+            <div className="h-full flex items-center justify-center text-sm text-slate-400">
+              Loading graph...
+            </div>
+          }
+        >
+          <PipelineGraph yamlContent={content} onChange={setContent} agentNames={agentNames} />
         </Suspense>
       </div>
 

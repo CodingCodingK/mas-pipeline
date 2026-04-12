@@ -643,6 +643,7 @@ export default function RunDetailPage() {
           setSseEvents((prev) => [...prev, ev]);
           if (ev.type === "pipeline_end") setStatus("completed");
           if (ev.type === "pipeline_failed") setStatus("failed");
+          if (ev.type === "pipeline_paused") setStatus("paused");
         },
       }
     )
@@ -807,6 +808,9 @@ export default function RunDetailPage() {
           <StatCard label="Errors" value={String(summary.errors)} />
         </div>
       )}
+
+      {/* Resume UI for paused runs */}
+      {status === "paused" && <ResumePanel runId={runId!} onResumed={loadHistorical} />}
 
       {/* Error displays */}
       {detail?.error && (
@@ -1199,6 +1203,65 @@ export default function RunDetailPage() {
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+function ResumePanel({
+  runId,
+  onResumed,
+}: {
+  runId: string;
+  onResumed: () => void;
+}) {
+  const [feedback, setFeedback] = useState("");
+  const [resuming, setResuming] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const handleResume = async () => {
+    setResuming(true);
+    setErr(null);
+    try {
+      await client.post(`/runs/${runId}/resume`, {
+        value: feedback.trim() || null,
+      });
+      onResumed();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setResuming(false);
+    }
+  };
+
+  return (
+    <div className="mb-4 rounded-lg border-2 border-yellow-300 bg-yellow-50 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-lg">⏸</span>
+        <h3 className="text-sm font-semibold text-yellow-900">
+          Pipeline paused — waiting for review
+        </h3>
+      </div>
+      <p className="text-xs text-yellow-800 mb-3">
+        Check the results above, then provide optional feedback and resume.
+      </p>
+      <textarea
+        value={feedback}
+        onChange={(e) => setFeedback(e.target.value)}
+        rows={3}
+        placeholder="Optional feedback for the next agent (e.g. 'looks good' or 'rewrite the intro')..."
+        className="w-full rounded border border-yellow-300 bg-white p-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-yellow-400 mb-3"
+      />
+      {err && (
+        <div className="mb-2 text-xs text-red-700 font-mono">{err}</div>
+      )}
+      <button
+        type="button"
+        disabled={resuming}
+        onClick={handleResume}
+        className="rounded bg-yellow-600 px-4 py-1.5 text-sm text-white hover:bg-yellow-700 disabled:opacity-50"
+      >
+        {resuming ? "Resuming..." : "Resume Pipeline"}
+      </button>
     </div>
   );
 }
