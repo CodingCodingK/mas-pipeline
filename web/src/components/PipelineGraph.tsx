@@ -10,6 +10,7 @@ import {
   Background,
   Controls,
   Panel,
+  Handle,
   addEdge,
   applyNodeChanges,
   applyEdgeChanges,
@@ -19,6 +20,7 @@ import {
   type OnEdgesChange,
   type OnConnect,
   type Connection,
+  type NodeProps,
   Position,
   MarkerType,
 } from "@xyflow/react";
@@ -33,6 +35,7 @@ interface PipelineNode {
   role?: string;
   input?: string[];
   output?: string;
+  interrupt?: boolean;
 }
 
 interface PipelineYaml {
@@ -45,12 +48,18 @@ interface NodeData extends Record<string, unknown> {
   label: string;
   role: string;
   output: string;
+  interrupt: boolean;
+}
+
+interface AgentOption {
+  name: string;
+  description: string;
 }
 
 interface Props {
   yamlContent: string;
   onChange?: (yaml: string) => void;
-  agentNames?: string[];
+  agents?: AgentOption[];
 }
 
 // ── Constants ─────────────────────────────────────────────
@@ -66,6 +75,12 @@ const nodeStyle = {
   fontSize: 12,
   fontFamily: "ui-monospace, monospace",
   padding: "6px 10px",
+};
+
+const interruptNodeStyle = {
+  ...nodeStyle,
+  border: "2px dashed #f59e0b",
+  background: "#fffbeb",
 };
 
 const edgeDefaults = {
@@ -128,15 +143,16 @@ function yamlToGraph(yamlContent: string): {
       label: n.name,
       role: n.role || n.name,
       output: n.output || n.name,
+      interrupt: !!n.interrupt,
     };
     return {
       id: n.name,
-      type: "default",
+      type: "pipeline",
       position: { x: pos.x - NODE_W / 2, y: pos.y - NODE_H / 2 },
       data,
       sourcePosition: Position.Bottom,
       targetPosition: Position.Top,
-      style: nodeStyle,
+      style: n.interrupt ? interruptNodeStyle : nodeStyle,
     };
   });
 
@@ -205,6 +221,7 @@ function graphToYaml(
     if (d.role && d.role !== entry.name) entry.role = d.role;
     if (inputs && inputs.length > 0) entry.input = inputs;
     if (d.output) entry.output = d.output;
+    if (d.interrupt) entry.interrupt = true;
     return entry;
   });
 
@@ -222,13 +239,13 @@ function NodeEditDialog({
   node,
   onSave,
   onCancel,
-  agentNames,
+  agents,
   availableOutputs,
 }: {
   node: Node;
-  onSave: (data: { name: string; role: string; output: string }) => void;
+  onSave: (data: { name: string; role: string; output: string; interrupt: boolean }) => void;
   onCancel: () => void;
-  agentNames: string[];
+  agents: AgentOption[];
   availableOutputs: { nodeId: string; output: string }[];
 }) {
   const d = node.data as NodeData;
@@ -236,6 +253,8 @@ function NodeEditDialog({
   const [name, setName] = useState(isNew ? "" : (d.label || node.id));
   const [role, setRole] = useState(d.role || "");
   const [output, setOutput] = useState(isNew ? "" : (d.output || ""));
+  const [interrupt, setInterrupt] = useState(d.interrupt || false);
+  const selectedAgent = agents.find((a) => a.name === role);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -272,17 +291,22 @@ function NodeEditDialog({
         </div>
         <div>
           <label className="block text-xs text-slate-500 mb-1">Role (Agent)</label>
-          {agentNames.length > 0 ? (
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="w-full rounded border border-slate-300 px-2 py-1 text-sm font-mono"
-            >
-              <option value="">-- select agent --</option>
-              {agentNames.map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
+          {agents.length > 0 ? (
+            <>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                className="w-full rounded border border-slate-300 px-2 py-1 text-sm font-mono"
+              >
+                <option value="">-- select agent --</option>
+                {agents.map((a) => (
+                  <option key={a.name} value={a.name}>{a.name}</option>
+                ))}
+              </select>
+              {selectedAgent?.description && (
+                <p className="mt-1 text-[11px] text-slate-400 leading-tight">{selectedAgent.description}</p>
+              )}
+            </>
           ) : (
             <input
               value={role}
@@ -301,6 +325,15 @@ function NodeEditDialog({
             className="w-full rounded border border-slate-300 px-2 py-1 text-sm font-mono"
           />
         </div>
+        <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={interrupt}
+            onChange={(e) => setInterrupt(e.target.checked)}
+            className="rounded border-slate-300"
+          />
+          Interrupt (pause for human review)
+        </label>
         {availableOutputs.length > 0 && (
           <div>
             <label className="block text-xs text-slate-500 mb-1">
@@ -328,7 +361,7 @@ function NodeEditDialog({
           </button>
           <button
             type="button"
-            onClick={() => onSave({ name: name.trim(), role: role.trim(), output: output.trim() })}
+            onClick={() => onSave({ name: name.trim(), role: role.trim(), output: output.trim(), interrupt })}
             disabled={!name.trim()}
             className="rounded bg-slate-900 px-3 py-1 text-xs text-white disabled:opacity-50"
           >
@@ -340,9 +373,31 @@ function NodeEditDialog({
   );
 }
 
+// ── Custom Node ──────────────────────────────────────────
+
+function PipelineNodeComponent({ data }: NodeProps) {
+  const d = data as NodeData;
+  return (
+    <>
+      <Handle type="target" position={Position.Top} />
+      <div className="text-center">
+        <span>{d.label}</span>
+        {d.interrupt && (
+          <span className="ml-1.5 text-amber-600 text-[10px] font-semibold" title="Interrupt: pauses for human review">
+            &#x23F8;
+          </span>
+        )}
+      </div>
+      <Handle type="source" position={Position.Bottom} />
+    </>
+  );
+}
+
+const nodeTypes = { pipeline: PipelineNodeComponent };
+
 // ── Main Component ────────────────────────────────────────
 
-export default function PipelineGraph({ yamlContent, onChange, agentNames = [] }: Props) {
+export default function PipelineGraph({ yamlContent, onChange, agents = [] }: Props) {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [meta, setMeta] = useState<{ pipeline?: string; description?: string }>({});
@@ -423,10 +478,10 @@ export default function PipelineGraph({ yamlContent, onChange, agentNames = [] }
   const addNode = useCallback(() => {
     const id = `node_${Date.now()}`;
     const maxY = nodes.reduce((m, n) => Math.max(m, n.position.y), 0);
-    const data: NodeData = { label: id, role: id, output: id };
+    const data: NodeData = { label: id, role: id, output: id, interrupt: false };
     const newNode: Node = {
       id,
-      type: "default",
+      type: "pipeline",
       position: { x: 100, y: maxY + NODE_H + 60 },
       data,
       sourcePosition: Position.Bottom,
@@ -448,7 +503,7 @@ export default function PipelineGraph({ yamlContent, onChange, agentNames = [] }
   );
 
   const handleNodeSave = useCallback(
-    (data: { name: string; role: string; output: string }) => {
+    (data: { name: string; role: string; output: string; interrupt: boolean }) => {
       if (!editNode) return;
       const oldId = editNode.id;
       const newId = data.name || oldId;
@@ -458,10 +513,12 @@ export default function PipelineGraph({ yamlContent, onChange, agentNames = [] }
           label: data.name,
           role: data.role || data.name,
           output: data.output || data.name,
+          interrupt: data.interrupt,
         };
+        const style = data.interrupt ? interruptNodeStyle : nodeStyle;
         const next = prev.map((n) =>
           n.id === oldId
-            ? { ...n, id: newId, data: newData, style: nodeStyle }
+            ? { ...n, id: newId, data: newData, style }
             : n
         );
         // Also update edges if node was renamed
@@ -501,6 +558,7 @@ export default function PipelineGraph({ yamlContent, onChange, agentNames = [] }
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        nodeTypes={nodeTypes}
         onNodesChange={readOnly ? undefined : onNodesChange}
         onEdgesChange={readOnly ? undefined : onEdgesChange}
         onConnect={readOnly ? undefined : onConnect}
@@ -542,7 +600,7 @@ export default function PipelineGraph({ yamlContent, onChange, agentNames = [] }
           node={editNode}
           onSave={handleNodeSave}
           onCancel={() => setEditNode(null)}
-          agentNames={agentNames}
+          agents={agents}
           availableOutputs={nodes
             .filter((n) => n.id !== editNode.id)
             .map((n) => ({

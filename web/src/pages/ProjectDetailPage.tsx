@@ -6,12 +6,14 @@ import { useAsync } from "@/hooks/useAsync";
 import AgentsTab from "@/components/AgentsTab";
 import DashboardTab from "@/components/DashboardTab";
 import FilesTab from "@/components/FilesTab";
+import PipelineTab from "@/components/PipelineTab";
 import RunsTab from "@/components/RunsTab";
 
-type TabKey = "agents" | "runs" | "files" | "dashboard" | "chat";
+type TabKey = "agents" | "runs" | "files" | "dashboard" | "pipeline" | "chat";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "dashboard", label: "Dashboard" },
+  { key: "pipeline", label: "Pipeline" },
   { key: "agents", label: "Agents" },
   { key: "runs", label: "Runs" },
   { key: "files", label: "Files" },
@@ -24,7 +26,7 @@ export default function ProjectDetailPage() {
   const [search, setSearch] = useSearchParams();
   const nav = useNavigate();
   const raw = search.get("tab");
-  const validTabs: TabKey[] = ["agents", "runs", "files", "dashboard", "chat"];
+  const validTabs: TabKey[] = ["agents", "runs", "files", "dashboard", "pipeline", "chat"];
   const active: TabKey = validTabs.includes(raw as TabKey)
     ? (raw as TabKey)
     : "dashboard";
@@ -83,6 +85,7 @@ export default function ProjectDetailPage() {
           </nav>
           <div className="mt-6">
             {active === "dashboard" && <DashboardTab projectId={projectId} />}
+            {active === "pipeline" && <PipelineTab pipelineName={data.pipeline} />}
             {active === "agents" && <AgentsTab projectId={projectId} />}
             {active === "runs" && (
               <RunsTab projectId={projectId} pipelineName={data.pipeline} />

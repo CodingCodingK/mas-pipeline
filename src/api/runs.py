@@ -77,6 +77,7 @@ class RunDetail(BaseModel):
     outputs: dict[str, str] = {}
     final_output: str = ""
     error: str | None = None
+    paused_at: str | None = None
 
 
 class AgentRunItem(BaseModel):
@@ -120,6 +121,7 @@ def _to_detail(run: WorkflowRun) -> RunDetail:
         outputs=meta.get("outputs", {}),
         final_output=meta.get("final_output", ""),
         error=meta.get("error"),
+        paused_at=meta.get("paused_at"),
     )
 
 
@@ -233,9 +235,7 @@ async def resume_run(run_id: str, body: ResumeBody) -> StatusResponse:
     if run.pipeline is None:
         raise HTTPException(status_code=409, detail="run has no pipeline associated")
 
-    feedback = body.value if isinstance(body.value, str) else (
-        json.dumps(body.value, ensure_ascii=False) if body.value is not None else None
-    )
+    feedback = body.value
 
     async def _do_resume():
         try:

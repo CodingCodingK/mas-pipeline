@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
 import ProjectsPage from "./pages/ProjectsPage";
@@ -5,8 +6,24 @@ import ProjectDetailPage from "./pages/ProjectDetailPage";
 import RunDetailPage from "./pages/RunDetailPage";
 import ChatPage from "./pages/ChatPage";
 import PipelineEditorPage from "./pages/PipelineEditorPage";
+import LoginPage from "./pages/LoginPage";
 
 export default function App() {
+  const [authed, setAuthed] = useState(
+    () => sessionStorage.getItem("mas_authed") === "1"
+  );
+
+  if (!authed) {
+    return (
+      <LoginPage
+        onLogin={() => {
+          sessionStorage.setItem("mas_authed", "1");
+          setAuthed(true);
+        }}
+      />
+    );
+  }
+
   return (
     <Routes>
       <Route element={<Layout />}>

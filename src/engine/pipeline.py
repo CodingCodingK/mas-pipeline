@@ -301,6 +301,7 @@ async def execute_pipeline(
             "project_id": project_id,
             "permission_mode": str(permission_mode.value if hasattr(permission_mode, "value") else permission_mode),
             "error": None,
+            "review_feedback": "",
         }
 
         # Run the graph
@@ -445,7 +446,7 @@ async def resume_pipeline(
     pipeline_name: str,
     run_id: str,
     project_id: int,
-    feedback: str | None = None,
+    feedback: object = None,
     hook_runner: object | None = None,
     permission_mode: object | None = None,
 ) -> PipelineResult:

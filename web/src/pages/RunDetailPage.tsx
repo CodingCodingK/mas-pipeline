@@ -810,7 +810,14 @@ export default function RunDetailPage() {
       )}
 
       {/* Resume UI for paused runs */}
-      {status === "paused" && <ResumePanel runId={runId!} onResumed={loadHistorical} />}
+      {status === "paused" && (
+        <ResumePanel
+          runId={runId!}
+          pausedAt={detail?.paused_at ?? null}
+          outputs={detail?.outputs ?? {}}
+          onResumed={loadHistorical}
+        />
+      )}
 
       {/* Error displays */}
       {detail?.error && (
@@ -1209,22 +1216,35 @@ export default function RunDetailPage() {
 
 function ResumePanel({
   runId,
+  pausedAt,
+  outputs,
   onResumed,
 }: {
   runId: string;
+  pausedAt: string | null;
+  outputs: Record<string, string>;
   onResumed: () => void;
 }) {
   const [feedback, setFeedback] = useState("");
+  const [editedText, setEditedText] = useState("");
   const [resuming, setResuming] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(true);
+  const [mode, setMode] = useState<"review" | "edit">("review");
 
-  const handleResume = async () => {
+  const outputContent = pausedAt ? outputs[pausedAt] ?? null : null;
+
+  const handleAction = async (action: "approve" | "reject" | "edit") => {
     setResuming(true);
     setErr(null);
     try {
-      await client.post(`/runs/${runId}/resume`, {
-        value: feedback.trim() || null,
-      });
+      const value: Record<string, string> = { action };
+      if (action === "reject") {
+        value.feedback = feedback.trim();
+      } else if (action === "edit") {
+        value.edited = editedText;
+      }
+      await client.post(`/runs/${runId}/resume`, { value });
       onResumed();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -1235,33 +1255,124 @@ function ResumePanel({
 
   return (
     <div className="mb-4 rounded-lg border-2 border-yellow-300 bg-yellow-50 p-4">
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-2">
         <span className="text-lg">⏸</span>
         <h3 className="text-sm font-semibold text-yellow-900">
-          Pipeline paused — waiting for review
+          Pipeline paused at{" "}
+          {pausedAt ? (
+            <code className="bg-yellow-200 px-1.5 py-0.5 rounded text-yellow-900">{pausedAt}</code>
+          ) : (
+            "unknown node"
+          )}
+          {" "}&mdash; waiting for review
         </h3>
       </div>
-      <p className="text-xs text-yellow-800 mb-3">
-        Check the results above, then provide optional feedback and resume.
-      </p>
-      <textarea
-        value={feedback}
-        onChange={(e) => setFeedback(e.target.value)}
-        rows={3}
-        placeholder="Optional feedback for the next agent (e.g. 'looks good' or 'rewrite the intro')..."
-        className="w-full rounded border border-yellow-300 bg-white p-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-yellow-400 mb-3"
-      />
-      {err && (
-        <div className="mb-2 text-xs text-red-700 font-mono">{err}</div>
+
+      {/* Mode tabs */}
+      <div className="flex gap-1 mb-3">
+        <button
+          type="button"
+          onClick={() => setMode("review")}
+          className={`px-3 py-1 text-xs rounded ${mode === "review" ? "bg-yellow-200 text-yellow-900 font-medium" : "text-yellow-700 hover:bg-yellow-100"}`}
+        >
+          Review
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setMode("edit");
+            if (!editedText && outputContent) setEditedText(outputContent);
+          }}
+          className={`px-3 py-1 text-xs rounded ${mode === "edit" ? "bg-yellow-200 text-yellow-900 font-medium" : "text-yellow-700 hover:bg-yellow-100"}`}
+        >
+          Edit output
+        </button>
+      </div>
+
+      {mode === "review" && (
+        <>
+          {outputContent && (
+            <div className="mb-3 rounded border border-yellow-300 bg-white overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-yellow-900 hover:bg-yellow-50"
+              >
+                <span>Output from <code>{pausedAt}</code></span>
+                <span>{expanded ? "▾" : "▸"}</span>
+              </button>
+              {expanded && (
+                <div className="px-3 pb-3 text-sm font-mono text-slate-800 whitespace-pre-wrap max-h-64 overflow-auto border-t border-yellow-200">
+                  {outputContent}
+                </div>
+              )}
+            </div>
+          )}
+
+          <textarea
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            rows={3}
+            placeholder="Feedback for rejection (e.g. 'rewrite the intro, too formal')..."
+            className="w-full rounded border border-yellow-300 bg-white p-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-yellow-400 mb-3"
+          />
+
+          {err && (
+            <div className="mb-2 text-xs text-red-700 font-mono">{err}</div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={resuming}
+              onClick={() => handleAction("approve")}
+              className="rounded bg-green-600 px-4 py-1.5 text-sm text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              {resuming ? "..." : "Approve & Continue"}
+            </button>
+            <button
+              type="button"
+              disabled={resuming || !feedback.trim()}
+              onClick={() => handleAction("reject")}
+              className="rounded bg-red-600 px-4 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {resuming ? "..." : "Reject & Redo"}
+            </button>
+          </div>
+          {!feedback.trim() && (
+            <p className="mt-1.5 text-[11px] text-yellow-700">
+              Write feedback above to enable "Reject & Redo"
+            </p>
+          )}
+        </>
       )}
-      <button
-        type="button"
-        disabled={resuming}
-        onClick={handleResume}
-        className="rounded bg-yellow-600 px-4 py-1.5 text-sm text-white hover:bg-yellow-700 disabled:opacity-50"
-      >
-        {resuming ? "Resuming..." : "Resume Pipeline"}
-      </button>
+
+      {mode === "edit" && (
+        <>
+          <p className="text-xs text-yellow-800 mb-2">
+            Edit the output directly, then save to continue the pipeline with your version.
+          </p>
+          <textarea
+            value={editedText}
+            onChange={(e) => setEditedText(e.target.value)}
+            rows={10}
+            className="w-full rounded border border-yellow-300 bg-white p-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-yellow-400 mb-3"
+          />
+
+          {err && (
+            <div className="mb-2 text-xs text-red-700 font-mono">{err}</div>
+          )}
+
+          <button
+            type="button"
+            disabled={resuming || !editedText.trim()}
+            onClick={() => handleAction("edit")}
+            className="rounded bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {resuming ? "..." : "Save Edit & Continue"}
+          </button>
+        </>
+      )}
     </div>
   );
 }

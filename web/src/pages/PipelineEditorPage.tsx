@@ -19,7 +19,7 @@ export default function PipelineEditorPage() {
     []
   );
   const { data: agentsData } = useAsync(fetchAgents, []);
-  const agentNames = agentsData?.items.map((a) => a.name) ?? [];
+  const agents = agentsData?.items.map((a) => ({ name: a.name, description: a.description })) ?? [];
 
   const [selected, setSelected] = useState<string | null>(null);
   const [isNew, setIsNew] = useState(false);
@@ -135,7 +135,7 @@ export default function PipelineEditorPage() {
               name={selected ?? ""}
               isNew={isNew}
               initialContent={isNew ? initialContent : undefined}
-              agentNames={agentNames}
+              agents={agents}
               onSaved={() => {
                 setSelected(null);
                 setIsNew(false);
@@ -163,14 +163,14 @@ function EditorPanel({
   name,
   isNew,
   initialContent,
-  agentNames,
+  agents,
   onSaved,
   onClose,
 }: {
   name: string;
   isNew: boolean;
   initialContent?: string;
-  agentNames: string[];
+  agents: { name: string; description: string }[];
   onSaved: () => void;
   onClose: () => void;
 }) {
@@ -290,7 +290,7 @@ function EditorPanel({
         </Suspense>
       </div>
 
-      <div className="mt-4 rounded border border-slate-200 overflow-hidden" style={{ height: 380 }}>
+      <div className="mt-4 rounded border border-slate-200 overflow-hidden" style={{ height: 520 }}>
         <Suspense
           fallback={
             <div className="h-full flex items-center justify-center text-sm text-slate-400">
@@ -298,7 +298,7 @@ function EditorPanel({
             </div>
           }
         >
-          <PipelineGraph yamlContent={content} onChange={setContent} agentNames={agentNames} />
+          <PipelineGraph yamlContent={content} onChange={setContent} agents={agents} />
         </Suspense>
       </div>
 

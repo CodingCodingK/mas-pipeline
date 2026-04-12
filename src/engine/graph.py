@@ -12,7 +12,7 @@ import logging
 from typing import Annotated, Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import interrupt
+from langgraph.types import Command, interrupt
 
 from src.engine.pipeline import NodeDefinition, PipelineDefinition
 
@@ -41,6 +41,7 @@ class PipelineState(TypedDict):
     project_id: int
     permission_mode: str
     error: Annotated[str | None, _first_error]
+    review_feedback: str  # last-write-wins (no reducer needed for simple str)
 
 
 # ── Node function factories ──────────────────────────────
@@ -77,7 +78,8 @@ def _make_node_fn(
                 return {}
 
         # Also skip if we already produced our output (re-trigger from late parent)
-        if node.output in current_outputs:
+        # Empty string means output was cleared by a reject — allow re-run
+        if current_outputs.get(node.output):
             return {}
 
         import time as _time
@@ -88,6 +90,11 @@ def _make_node_fn(
 
         # Build task description from upstream outputs
         task_desc = _build_task_description(node, state["outputs"], state["user_input"])
+
+        # If this is a retry after rejection, append the reviewer's feedback
+        review_fb = state.get("review_feedback", "")
+        if review_fb:
+            task_desc += f"\n\n--- 审阅反馈（请根据此反馈修改） ---\n{review_fb}\n--- 审阅反馈结束 ---"
 
         collector = get_collector()
         emit_pipeline_event(state["run_id"], {
@@ -128,7 +135,7 @@ def _make_node_fn(
                 node_name=node.name,
                 duration_ms=duration_ms,
             )
-            return {"outputs": {node.output: output}}
+            return {"outputs": {node.output: output}, "review_feedback": ""}
         except Exception as exc:
             duration_ms = int((_time.monotonic() - node_started_at) * 1000)
             logger.error("Node '%s' failed: %s", node.name, exc)
@@ -152,11 +159,12 @@ def _make_node_fn(
 
 
 def _make_interrupt_fn(node: NodeDefinition) -> Any:
-    """Create a lightweight interrupt node that pauses the graph.
+    """Create an interrupt node that pauses for human review.
 
-    This is the second half of an interrupt-enabled node.
-    The expensive agent work is done in the _run node; this node
-    just calls interrupt() so resume doesn't re-run the agent.
+    Supports three resume actions:
+    - approve: continue to the next node (default for plain string feedback)
+    - reject:  jump back to {name}_run to redo, with feedback injected
+    - edit:    replace this node's output with human-provided text, then continue
     """
 
     async def interrupt_fn(state: PipelineState) -> dict[str, Any]:
@@ -164,14 +172,39 @@ def _make_interrupt_fn(node: NodeDefinition) -> Any:
             return {}
 
         output_content = state["outputs"].get(node.output, "")
-        # Pause execution — resume will re-enter here
         feedback = interrupt({
             "node": node.name,
             "output": output_content,
         })
-        # feedback from resume is available but we don't modify state with it
-        logger.info("Node '%s' resumed with feedback: %s", node.name, feedback)
-        return {}
+
+        action = "approve"
+        feedback_text = ""
+        edited_text = ""
+
+        if isinstance(feedback, dict):
+            action = feedback.get("action", "approve")
+            feedback_text = feedback.get("feedback", "")
+            edited_text = feedback.get("edited", "")
+        elif isinstance(feedback, str) and feedback:
+            feedback_text = feedback
+
+        logger.info("Node '%s' resumed: action=%s", node.name, action)
+
+        if action == "reject":
+            # Clear old output so _run node won't skip, write feedback to state
+            return Command(
+                goto=f"{node.name}_run",
+                update={
+                    "outputs": {node.output: ""},
+                    "review_feedback": feedback_text,
+                },
+            )
+
+        if action == "edit":
+            return {"outputs": {node.output: edited_text}, "review_feedback": ""}
+
+        # approve (default)
+        return {"review_feedback": ""}
 
     interrupt_fn.__name__ = f"{node.name}_interrupt"
     return interrupt_fn
