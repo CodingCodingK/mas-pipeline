@@ -2,9 +2,9 @@
 # Override with config/settings.local.yaml or environment variables
 
 models:
-  strong: gemini-2.5-pro
-  medium: claude-sonnet-4-6
-  light: gpt-4o-mini
+  strong: gpt-5.4
+  medium: gpt-5.4
+  light: gpt-5.4
 
 embedding:
   model: text-embedding-3-small

@@ -68,6 +68,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup / shutdown lifecycle."""
     settings = get_settings()
     print(f"[mas-pipeline] Starting with model tiers: {settings.models}")
+
+    from src.llm.router import validate_model_providers
+    provider_errors = validate_model_providers()
+    if provider_errors:
+        for err in provider_errors:
+            print(f"[mas-pipeline] ⚠ {err}")
+        raise RuntimeError(
+            "Model-provider configuration invalid. "
+            "Check settings.yaml: each tier's model must have a provider with a valid API key."
+        )
+    print("[mas-pipeline] Model-provider bindings verified")
+
     sandbox_mode = init_sandbox(settings.sandbox)
     print(f"[mas-pipeline] Sandbox mode: {sandbox_mode.value}")
     await init_db()

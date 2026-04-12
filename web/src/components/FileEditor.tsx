@@ -1,5 +1,7 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { client, ApiError } from "@/api/client";
+
+const MonacoEditor = lazy(() => import("@monaco-editor/react"));
 import type {
   AgentReadResponse,
   PipelineReadResponse,
@@ -8,11 +10,14 @@ import type {
 
 type Kind = "agent" | "pipeline";
 
+type Source = "global" | "project-only" | "project-override" | "project";
+
 interface Props {
   projectId: number;
   kind: Kind;
   name: string;
   isNew: boolean;
+  source?: Source;
   onSaved: () => void;
   onClose: () => void;
 }
@@ -32,6 +37,7 @@ export default function FileEditor({
   kind,
   name,
   isNew,
+  source,
   onSaved,
   onClose,
 }: Props) {
@@ -77,21 +83,6 @@ export default function FileEditor({
     };
   }, [projectId, kind, name, isNew]);
 
-  const handleTabKey = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key !== "Tab") return;
-      e.preventDefault();
-      const el = e.currentTarget;
-      const start = el.selectionStart;
-      const end = el.selectionEnd;
-      const next = content.slice(0, start) + "  " + content.slice(end);
-      setContent(next);
-      requestAnimationFrame(() => {
-        el.selectionStart = el.selectionEnd = start + 2;
-      });
-    },
-    [content]
-  );
 
   const save = useCallback(async () => {
     setSaving(true);
@@ -174,13 +165,27 @@ export default function FileEditor({
           Close
         </button>
       </div>
-      <textarea
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        onKeyDown={handleTabKey}
-        spellCheck={false}
-        className="w-full h-80 rounded border border-slate-300 bg-slate-50 p-3 font-mono text-sm"
-      />
+      <div className="rounded border border-slate-300 overflow-hidden">
+        <Suspense fallback={<div className="h-80 bg-slate-50 flex items-center justify-center text-sm text-slate-400">Loading editor…</div>}>
+          <MonacoEditor
+            height="320px"
+            language={kind === "agent" ? "markdown" : "yaml"}
+            value={content}
+            onChange={(v) => setContent(v ?? "")}
+            theme="vs-light"
+            options={{
+              minimap: { enabled: false },
+              fontSize: 13,
+              lineNumbers: "on",
+              wordWrap: "on",
+              tabSize: 2,
+              scrollBeyondLastLine: false,
+              renderLineHighlight: "line",
+              padding: { top: 8 },
+            }}
+          />
+        </Suspense>
+      </div>
       {error && (
         <div className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800">
           <div className="font-medium">
@@ -210,17 +215,17 @@ export default function FileEditor({
         >
           {saving ? "Saving…" : "Save (project layer)"}
         </button>
-        {!isNew && (
+        {!isNew && source !== "global" && (
           <button
             type="button"
             disabled={saving}
             onClick={remove}
             className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 disabled:opacity-50"
           >
-            Delete project override
+            {source === "project-override" ? "Delete project override" : "Delete"}
           </button>
         )}
-        {!isNew && (
+        {!isNew && source !== "project-only" && source !== "project" && (
           <button
             type="button"
             disabled={saving}
@@ -231,6 +236,12 @@ export default function FileEditor({
           </button>
         )}
       </div>
+      {kind === "agent" && (
+        <p className="mt-3 text-xs text-slate-400">
+          Changes take effect on new sessions only. Existing chat sessions
+          continue using the configuration they started with.
+        </p>
+      )}
     </div>
   );
 }

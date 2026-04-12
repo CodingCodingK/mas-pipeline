@@ -64,9 +64,9 @@ class ProviderConfig(BaseModel):
 
 
 class ModelsConfig(BaseModel):
-    strong: str = "gemini-2.5-pro"
-    medium: str = "claude-sonnet-4-6"
-    light: str = "gpt-4o-mini"
+    strong: str = "gpt-5.4"
+    medium: str = "gpt-5.4"
+    light: str = "gpt-5.4"
 
 
 class EmbeddingConfig(BaseModel):

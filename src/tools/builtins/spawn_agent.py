@@ -125,10 +125,12 @@ class SpawnAgentTool(Tool):
             task_preview=task_description,
             spawn_id=spawn_id,
         )
-        current_spawn_id.set(spawn_id)
+        prev_spawn_id = current_spawn_id.set(spawn_id)
 
         # Launch background coroutine. Track it on the parent SessionRunner so
-        # graceful shutdown can cancel it.
+        # graceful shutdown can cancel it.  The child task inherits the
+        # current_spawn_id via ContextVar copy-on-create_task; reset the
+        # parent's value immediately so it doesn't leak into subsequent turns.
         task = asyncio.create_task(
             self._run_agent_background(
                 agent_run_id=agent_run_id,
@@ -139,6 +141,7 @@ class SpawnAgentTool(Tool):
             ),
             name=f"spawn_agent:{role}:{agent_run_id}",
         )
+        current_spawn_id.reset(prev_spawn_id)
 
         if parent_runner is not None:
             parent_runner.child_tasks.add(task)
@@ -193,6 +196,7 @@ class SpawnAgentTool(Tool):
                     run_id=context.run_id,
                     tools_override=tools_override,
                     abort_signal=context.abort_signal,
+                    is_spawned=True,
                     permission_mode=permission_mode,
                     parent_deny_rules=parent_deny_rules,
                 )
@@ -202,11 +206,22 @@ class SpawnAgentTool(Tool):
                 state.tool_context.session_id = context.session_id
                 state.tool_context.conversation_id = context.conversation_id
 
-                exit_reason = await asyncio.wait_for(
-                    run_agent_to_completion(state),
-                    timeout=timeout_seconds,
-                )
-                output = extract_final_output(state.messages)
+                from src.telemetry import get_collector
+
+                collector = get_collector()
+                async with collector.turn_context(
+                    agent_role=role,
+                    input_preview=task_description[:200],
+                    session_id=context.session_id,
+                    project_id=context.project_id,
+                ) as turn_capture:
+                    exit_reason = await asyncio.wait_for(
+                        run_agent_to_completion(state),
+                        timeout=timeout_seconds,
+                    )
+                    output = extract_final_output(state.messages)
+                    turn_capture["output"] = (output or "")[:200]
+                    turn_capture["stop_reason"] = exit_reason.value if exit_reason else "done"
 
                 if exit_reason == ExitReason.COMPLETED:
                     await complete_agent_run(agent_run_id, output or "(no output)")
@@ -370,16 +385,24 @@ class SpawnAgentTool(Tool):
         except Exception:
             logger.warning("Hook %s failed (non-blocking)", event_name, exc_info=True)
 
+    _run_id_cache: dict[str, int] = {}
+
     async def _resolve_run_id(self, context: ToolContext) -> int:
         """Convert context.run_id (str) to workflow_runs.id (int).
 
-        If context has no run_id, create a new workflow run.
+        If no matching workflow_run exists, create one and cache the mapping
+        so subsequent spawns within the same session reuse it.
         """
         from sqlalchemy import select
 
         from src.db import get_db
         from src.engine.run import create_run
         from src.models import WorkflowRun
+
+        cache_key = context.run_id or ""
+
+        if cache_key in self._run_id_cache:
+            return self._run_id_cache[cache_key]
 
         if context.run_id:
             async with get_db() as session:
@@ -388,7 +411,17 @@ class SpawnAgentTool(Tool):
                 )
                 row = result.scalar()
                 if row is not None:
+                    self._run_id_cache[cache_key] = row
                     return row
 
         run = await create_run(project_id=context.project_id or 0)
+        # Patch run_id so future lookups within this session find it
+        if context.run_id:
+            async with get_db() as session:
+                from src.models import WorkflowRun
+                wf = await session.get(WorkflowRun, run.id)
+                if wf is not None:
+                    wf.run_id = context.run_id
+                    await session.flush()
+        self._run_id_cache[cache_key] = run.id
         return run.id

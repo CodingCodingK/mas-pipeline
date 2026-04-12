@@ -18,6 +18,18 @@ export type SourceKind = "global" | "project-only" | "project-override" | "proje
 export interface AgentItem {
   name: string;
   source: SourceKind;
+  description: string;
+  model_tier: string;
+  tools: string[];
+}
+
+export interface ToolItem {
+  name: string;
+  description: string;
+}
+
+export interface ToolListResponse {
+  items: ToolItem[];
 }
 
 export interface AgentListResponse {
@@ -49,6 +61,19 @@ export interface TriggerRunResponse {
   run_id: string;
 }
 
+export interface RunListItem {
+  run_id: string;
+  project_id: number;
+  pipeline: string | null;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface RunListResponse {
+  items: RunListItem[];
+}
+
 export interface RunDetail {
   run_id: string;
   project_id: number;
@@ -56,6 +81,9 @@ export interface RunDetail {
   status: string;
   started_at: string | null;
   finished_at: string | null;
+  outputs: Record<string, string>;
+  final_output: string;
+  error: string | null;
 }
 
 export interface AgentReference {
@@ -70,3 +98,17 @@ export interface InUseErrorBody {
 }
 
 export type ApiErrorBody = { detail: string } | InUseErrorBody | unknown;
+
+// ── Chat ──
+
+export interface CreateSessionResponse {
+  id: number;
+  mode: string;
+  session_key: string;
+  conversation_id: number;
+}
+
+export interface SendMessageResponse {
+  message_index: number;
+}
+

@@ -8,6 +8,7 @@ import FileEditor from "./FileEditor";
 interface EditorTarget {
   name: string;
   isNew: boolean;
+  source?: string;
 }
 
 export default function PipelinesTab({ projectId }: { projectId: number }) {
@@ -44,7 +45,7 @@ export default function PipelinesTab({ projectId }: { projectId: number }) {
               <li key={item.name}>
                 <button
                   type="button"
-                  onClick={() => setTarget({ name: item.name, isNew: false })}
+                  onClick={() => setTarget({ name: item.name, isNew: false, source: item.source })}
                   className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-slate-50"
                 >
                   <span className="font-mono text-sm">{item.name}</span>
@@ -62,6 +63,7 @@ export default function PipelinesTab({ projectId }: { projectId: number }) {
             kind="pipeline"
             name={target.name}
             isNew={target.isNew}
+            source={target.source as any}
             onSaved={() => {
               setTarget(null);
               reload();

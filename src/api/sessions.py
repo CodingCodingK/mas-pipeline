@@ -165,13 +165,14 @@ async def send_message(session_id: int, body: SendMessageBody) -> SendMessageRes
     msgs = await get_messages(session.conversation_id)
     message_index = len(msgs) - 1
 
-    runner = await get_or_create_runner(
+    runner, created = await get_or_create_runner(
         session_id=session.id,
         mode=session.mode,
         project_id=session.project_id,
         conversation_id=session.conversation_id,
     )
-    runner.notify_new_message()
+    if not created:
+        runner.notify_new_message()
 
     return SendMessageResponse(message_index=message_index)
 
@@ -194,7 +195,7 @@ async def session_events(session_id: int, request: Request) -> StreamingResponse
         except ValueError:
             last_event_id = -1
 
-    runner = await get_or_create_runner(
+    runner, _created = await get_or_create_runner(
         session_id=session.id,
         mode=session.mode,
         project_id=session.project_id,
@@ -246,6 +247,42 @@ async def session_events(session_id: int, request: Request) -> StreamingResponse
     )
 
 
+class SessionListItem(BaseModel):
+    id: int
+    mode: str
+    status: str
+    created_at: str | None = None
+    last_active_at: str | None = None
+
+
+class SessionList(BaseModel):
+    items: list[SessionListItem]
+
+
+@router.get("/projects/{project_id}/sessions", response_model=SessionList)
+async def list_sessions(project_id: int) -> SessionList:
+    """List chat sessions for a project, newest first."""
+    async with get_db() as db:
+        result = await db.execute(
+            select(ChatSession)
+            .where(ChatSession.project_id == project_id)
+            .order_by(ChatSession.last_active_at.desc())
+        )
+        sessions = result.scalars().all()
+    return SessionList(
+        items=[
+            SessionListItem(
+                id=s.id,
+                mode=s.mode,
+                status=s.status,
+                created_at=s.created_at.isoformat() if s.created_at else None,
+                last_active_at=s.last_active_at.isoformat() if s.last_active_at else None,
+            )
+            for s in sessions
+        ]
+    )
+
+
 @router.get("/sessions/{session_id}", response_model=SessionDetail)
 async def get_session(session_id: int) -> SessionDetail:
     session = await _load_session(session_id)
@@ -261,6 +298,27 @@ async def get_session(session_id: int) -> SessionDetail:
             session.last_active_at.isoformat() if session.last_active_at else None
         ),
     )
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+async def delete_session(session_id: int) -> None:
+    """Delete a chat session and its conversation."""
+    async with get_db() as db:
+        result = await db.execute(
+            select(ChatSession).where(ChatSession.id == session_id)
+        )
+        session = result.scalars().first()
+        if session is None:
+            raise HTTPException(status_code=404, detail="session not found")
+        conv_id = session.conversation_id
+        await db.delete(session)
+        # Also delete the conversation record
+        conv_result = await db.execute(
+            select(Conversation).where(Conversation.id == conv_id)
+        )
+        conv = conv_result.scalars().first()
+        if conv is not None:
+            await db.delete(conv)
 
 
 @router.get("/sessions/{session_id}/messages", response_model=MessagesPage)

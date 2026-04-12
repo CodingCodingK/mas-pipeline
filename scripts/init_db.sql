@@ -164,7 +164,7 @@ CREATE TABLE chat_sessions (
     session_key     VARCHAR(500) UNIQUE NOT NULL,
     channel         VARCHAR(50) NOT NULL,
     chat_id         VARCHAR(255) NOT NULL,
-    project_id      INTEGER NOT NULL REFERENCES projects(id),
+    project_id      INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     conversation_id INTEGER NOT NULL REFERENCES conversations(id),
     mode            VARCHAR(20) NOT NULL DEFAULT 'chat',
     metadata        JSONB DEFAULT '{}',

@@ -39,6 +39,7 @@ async def create_agent(
     max_turns: int = 30,
     abort_signal: asyncio.Event | None = None,
     *,
+    is_spawned: bool = False,
     permission_mode: PermissionMode,
     parent_deny_rules: list[PermissionRule] | None = None,
     mcp_manager: MCPManager | None = None,
@@ -67,13 +68,17 @@ async def create_agent(
     model_tier = metadata.get("model_tier", "medium")
     adapter = route(model_tier)
 
+    # 2b. Role-level max_turns override
+    if "max_turns" in metadata:
+        max_turns = int(metadata["max_turns"])
+
     # 3. Build tool registry (whitelist - disallowed)
     tool_names = tools_override or metadata.get("tools", [])
     all_tools = get_all_tools()
 
     registry = ToolRegistry()
     for name in tool_names:
-        if name in AGENT_DISALLOWED_TOOLS:
+        if is_spawned and name in AGENT_DISALLOWED_TOOLS:
             continue
         if name in all_tools:
             registry.register(all_tools[name])

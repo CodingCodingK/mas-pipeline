@@ -98,12 +98,15 @@ class Gateway:
             await append_message(session.conversation_id, user_message)
 
             # 3. Obtain runner (shared with REST path via the registry)
-            runner = await get_or_create_runner(
+            runner, created = await get_or_create_runner(
                 session_id=session.id,
                 mode=session.mode,
                 project_id=session.project_id,
                 conversation_id=session.conversation_id,
             )
+
+            if not created:
+                runner.notify_new_message()
 
             # 4. Subscribe, wake, buffer text deltas until `done`
             response_text = await self._wait_for_turn(runner, session.id)
@@ -161,7 +164,6 @@ class Gateway:
         queue = runner.add_subscriber()
         buffer: list[str] = []
         try:
-            runner.notify_new_message()
             while True:
                 try:
                     event = await asyncio.wait_for(

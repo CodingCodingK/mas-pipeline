@@ -43,6 +43,35 @@ def _match_provider(model_name: str) -> str:
     )
 
 
+def validate_model_providers() -> list[str]:
+    """Check that every configured tier has a provider with a non-empty API key.
+
+    Returns a list of error messages (empty = all good).
+    Called at startup to fail fast instead of 401-ing at runtime.
+    """
+    settings = get_settings()
+    errors: list[str] = []
+    for tier in ("strong", "medium", "light"):
+        model_name = getattr(settings.models, tier)
+        try:
+            provider_name = _match_provider(model_name)
+        except ValueError as exc:
+            errors.append(f"tier '{tier}' (model={model_name}): {exc}")
+            continue
+        provider_cfg = settings.providers.get(provider_name)
+        if provider_cfg is None:
+            errors.append(
+                f"tier '{tier}' uses model '{model_name}' → provider '{provider_name}' "
+                f"not found in settings.providers"
+            )
+        elif not provider_cfg.api_key or provider_cfg.api_key.startswith("${"):
+            errors.append(
+                f"tier '{tier}' uses model '{model_name}' → provider '{provider_name}' "
+                f"has no API key configured"
+            )
+    return errors
+
+
 def route(model_name: str) -> LLMAdapter:
     """Route a model name or tier to an LLMAdapter instance."""
     resolved = _resolve_tier(model_name)

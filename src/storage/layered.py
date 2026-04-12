@@ -87,6 +87,25 @@ def read_agent(name: str, project_id: int | None) -> str:
     return resolve_agent_file(name, project_id).read_text(encoding="utf-8")
 
 
+def _parse_agent_frontmatter(path: Path) -> dict:
+    """Extract description, model_tier, tools from agent frontmatter."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return {}
+    if not text.startswith("---"):
+        return {}
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return {}
+    fm = yaml.safe_load(parts[1]) or {}
+    return {
+        "description": fm.get("description", ""),
+        "model_tier": fm.get("model_tier", ""),
+        "tools": fm.get("tools") or [],
+    }
+
+
 def _list_stems(directory: Path, suffix: str) -> list[str]:
     if not directory.is_dir():
         return []
@@ -153,7 +172,12 @@ def merged_agents_view(project_id: int) -> list[dict]:
             src = "project-only"
         else:
             src = "global"
-        out.append({"name": n, "source": src})
+        try:
+            path = resolve_agent_file(n, project_id)
+            meta = _parse_agent_frontmatter(path)
+        except FileNotFoundError:
+            meta = {}
+        out.append({"name": n, "source": src, **meta})
     return out
 
 

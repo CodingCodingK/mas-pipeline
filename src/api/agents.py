@@ -33,6 +33,9 @@ class AgentContent(BaseModel):
 class AgentItem(BaseModel):
     name: str
     source: str
+    description: str = ""
+    model_tier: str = ""
+    tools: list[str] = []
 
 
 class AgentListResponse(BaseModel):
@@ -151,3 +154,28 @@ async def delete_project_agent(project_id: int, name: str) -> Response:
             detail=f"agent '{name}' not found in project {project_id}",
         )
     return Response(status_code=204)
+
+
+# ── Tools catalogue ───────────────────────────────────────
+
+
+class ToolItem(BaseModel):
+    name: str
+    description: str
+
+
+class ToolListResponse(BaseModel):
+    items: list[ToolItem]
+
+
+@router.get("/tools", response_model=ToolListResponse)
+async def list_tools() -> ToolListResponse:
+    """Return all built-in tools available for agent configuration."""
+    from src.tools.builtins import get_all_tools
+
+    tools = get_all_tools()
+    items = [
+        ToolItem(name=t.name, description=t.description)
+        for t in sorted(tools.values(), key=lambda t: t.name)
+    ]
+    return ToolListResponse(items=items)

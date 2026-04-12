@@ -23,7 +23,9 @@ from src.telemetry.query import (
     get_run_summary,
     get_run_timeline,
     get_run_tree,
+    get_session_agents,
     get_session_summary,
+    get_session_timeline,
     get_session_tree,
 )
 
@@ -91,6 +93,22 @@ async def session_summary(session_id: int) -> dict[str, Any]:
 async def session_tree(session_id: int) -> dict[str, Any]:
     try:
         return await get_session_tree(session_id)
+    except KeyError as exc:
+        raise _not_found(exc) from exc
+
+
+@router.get("/sessions/{session_id}/timeline")
+async def session_timeline(session_id: int) -> list[dict[str, Any]]:
+    try:
+        return await get_session_timeline(session_id)
+    except KeyError as exc:
+        raise _not_found(exc) from exc
+
+
+@router.get("/sessions/{session_id}/agents")
+async def session_agents(session_id: int) -> list[dict[str, Any]]:
+    try:
+        return await get_session_agents(session_id)
     except KeyError as exc:
         raise _not_found(exc) from exc
 

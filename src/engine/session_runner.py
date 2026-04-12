@@ -65,7 +65,8 @@ class SessionRunner:
 
         self._task: asyncio.Task | None = None
         self._exit_requested = False
-        self._messages_persisted_count = 0  # how many of state.messages already in PG
+        self._pg_synced_count = 0  # how many PG messages we've synced
+        self._system_prefix_len = 0  # state.messages entries before PG history
         self._channel: str | None = None  # captured during start() from ChatSession
 
         get_collector().record_session_event(
@@ -109,8 +110,9 @@ class SessionRunner:
         if self.state.messages and self.state.messages[-1].get("role") == "user" \
                 and not self.state.messages[-1].get("content"):
             self.state.messages.pop()
+        self._system_prefix_len = len(self.state.messages)
         self.state.messages.extend(history)
-        self._messages_persisted_count = len(self.state.messages)
+        self._pg_synced_count = len(history)
 
         # Tag the tool_context so spawn_agent can route notifications back here.
         self.state.tool_context.session_id = self.session_id
@@ -215,7 +217,24 @@ class SessionRunner:
                             )
                             break
 
-                # 2. Drive agent_loop inside a telemetry turn context
+                # 2. Skip agent_loop if nothing new for the LLM to respond to.
+                #    Without this guard a spurious wakeup (e.g. subscriber
+                #    reconnect) would cause a duplicate assistant response.
+                if not self._has_pending_user_turn():
+                    exited = await self._wait_for_wakeup(idle_timeout=idle_timeout, max_age=max_age)
+                    if exited:
+                        if datetime.utcnow() - self.created_at >= max_age:
+                            exit_reason_kind = "max_age_exit"
+                        else:
+                            exit_reason_kind = "idle_exit"
+                        break
+                    continue
+
+                # Reset turn counter so each user message gets a fresh budget
+                if self.state is not None:
+                    self.state.turn_count = 0
+
+                # Drive agent_loop inside a telemetry turn context
                 input_preview = self._latest_user_preview()
                 pre_turn_len = len(self.state.messages) if self.state else 0
                 async with collector.turn_context(
@@ -227,6 +246,7 @@ class SessionRunner:
                     async for event in agent_loop(self.state):  # type: ignore[arg-type]
                         self._fanout(event)
                         self._touch()
+                    self._fanout(StreamEvent(type="done", finish_reason="stop"))
                     turn_capture["output"] = self._latest_assistant_preview()
                     turn_capture["message_count_delta"] = (
                         (len(self.state.messages) if self.state else 0) - pre_turn_len
@@ -279,6 +299,18 @@ class SessionRunner:
             )
             await deregister(self.session_id)
             logger.info("SessionRunner %d exited (%s)", self.session_id, exit_reason_kind)
+
+    def _has_pending_user_turn(self) -> bool:
+        """True if the last non-system message is from the user (needs a response)."""
+        if self.state is None:
+            return False
+        for msg in reversed(self.state.messages):
+            role = msg.get("role")
+            if role == "user":
+                return True
+            if role in ("assistant", "tool"):
+                return False
+        return False
 
     def _latest_user_preview(self) -> str:
         if self.state is None:
@@ -357,20 +389,25 @@ class SessionRunner:
             self._exit_requested = True
             self.wakeup.set()
             return
-        if len(pg_messages) > self._messages_persisted_count:
-            new_msgs = pg_messages[self._messages_persisted_count:]
+        if len(pg_messages) > self._pg_synced_count:
+            new_msgs = pg_messages[self._pg_synced_count:]
             self.state.messages.extend(new_msgs)  # type: ignore[union-attr]
-            self._messages_persisted_count = len(pg_messages)
+            self._pg_synced_count = len(pg_messages)
 
     async def _persist_new_messages(self, append_message_fn) -> None:
-        """Append any messages added during this turn back to PG."""
+        """Append any messages added during this turn back to PG.
+
+        Only persists messages after the system prefix AND beyond what
+        we've already synced from PG.
+        """
         if self.state is None:
             return
         in_mem = self.state.messages
-        new_count = len(in_mem) - self._messages_persisted_count
-        if new_count <= 0:
+        # Messages in state.messages = [system prefix] + [PG-synced] + [new from agent_loop]
+        already_in_pg = self._system_prefix_len + self._pg_synced_count
+        if len(in_mem) <= already_in_pg:
             return
-        for msg in in_mem[self._messages_persisted_count:]:
+        for msg in in_mem[already_in_pg:]:
             try:
                 await append_message_fn(self.conversation_id, msg)
             except Exception:
@@ -378,4 +415,5 @@ class SessionRunner:
                     "SessionRunner %d: failed to persist message", self.session_id
                 )
                 return
-        self._messages_persisted_count = len(in_mem)
+        newly_persisted = len(in_mem) - already_in_pg
+        self._pg_synced_count += newly_persisted

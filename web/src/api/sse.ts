@@ -5,6 +5,7 @@ export interface SseEvent {
 
 export interface FetchEventStreamOptions {
   signal?: AbortSignal;
+  method?: "GET" | "POST";
   body?: unknown;
   onEvent: (event: SseEvent) => void;
 }
@@ -75,8 +76,10 @@ export async function fetchEventStream(
     headers["Content-Type"] = "application/json";
   }
 
+  const method = opts.method ?? (opts.body != null ? "POST" : "GET");
+
   const resp = await fetch(url, {
-    method: "POST",
+    method,
     headers,
     body:
       opts.body !== undefined && opts.body !== null

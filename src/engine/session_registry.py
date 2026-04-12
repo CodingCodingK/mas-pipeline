@@ -29,9 +29,14 @@ async def get_or_create_runner(
     mode: str,
     project_id: int,
     conversation_id: int,
-) -> SessionRunner:
-    """Idempotent factory. Returns the existing runner if one is alive,
-    otherwise constructs and starts a new one.
+) -> tuple[SessionRunner, bool]:
+    """Idempotent factory. Returns (runner, created) — *created* is True when
+    a brand-new runner was started in this call.
+
+    Callers must check *created*: a freshly started runner already picks up
+    pending PG messages via ``_sync_inbound_from_pg``, so calling
+    ``notify_new_message()`` on it would cause a spurious second wakeup and
+    a duplicate response.
 
     The lock is held only during dict mutation. SessionRunner construction
     (which awaits create_agent) happens outside the lock to avoid blocking
@@ -43,7 +48,7 @@ async def get_or_create_runner(
     async with _registry_lock:
         existing = _session_runners.get(session_id)
         if existing is not None and not existing.is_done:
-            return existing
+            return existing, False
 
     # Construct outside the lock (may await)
     runner = SessionRunner(
@@ -60,9 +65,9 @@ async def get_or_create_runner(
         if existing is not None and not existing.is_done:
             # Lost the race — discard ours and return the winner.
             await runner.request_exit()
-            return existing
+            return existing, False
         _session_runners[session_id] = runner
-        return runner
+        return runner, True
 
 
 def get_runner(session_id: int) -> SessionRunner | None:

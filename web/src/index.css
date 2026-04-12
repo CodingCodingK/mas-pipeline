@@ -12,3 +12,57 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, "Noto Sans", sans-serif;
 }
+
+/* Markdown prose inside chat messages */
+.aui-md-root {
+  @apply text-sm leading-relaxed;
+}
+.aui-md-root h1,
+.aui-md-root h2,
+.aui-md-root h3 {
+  @apply font-semibold mt-3 mb-1.5;
+}
+.aui-md-root h1 { @apply text-lg; }
+.aui-md-root h2 { @apply text-base; }
+.aui-md-root h3 { @apply text-sm; }
+.aui-md-root p { @apply mb-2; }
+.aui-md-root ul,
+.aui-md-root ol {
+  @apply pl-5 mb-2;
+}
+.aui-md-root ul { @apply list-disc; }
+.aui-md-root ol { @apply list-decimal; }
+.aui-md-root li { @apply mb-0.5; }
+.aui-md-root code {
+  @apply bg-slate-200 text-slate-800 rounded px-1 py-0.5 text-xs font-mono;
+}
+.aui-md-root pre {
+  @apply bg-slate-800 text-slate-100 rounded p-3 mb-2 overflow-x-auto text-xs;
+}
+.aui-md-root pre code {
+  @apply bg-transparent text-inherit p-0;
+}
+.aui-md-root blockquote {
+  @apply border-l-2 border-slate-300 pl-3 italic text-slate-600 mb-2;
+}
+.aui-md-root table {
+  @apply w-full border-collapse mb-2 text-xs table-fixed;
+}
+.aui-md-root {
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
+}
+.aui-md-root th,
+.aui-md-root td {
+  @apply border border-slate-200 px-2 py-1;
+}
+.aui-md-root th {
+  @apply bg-slate-50 font-medium;
+}
+.aui-md-root a {
+  @apply text-blue-600 underline;
+}
+.aui-md-root hr {
+  @apply border-slate-200 my-3;
+}

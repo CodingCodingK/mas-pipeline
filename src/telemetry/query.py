@@ -138,6 +138,13 @@ async def get_run_timeline(run_id: str) -> list[dict[str, Any]]:
     return [_public_event(e) for e in events]
 
 
+async def get_session_timeline(session_id: int) -> list[dict[str, Any]]:
+    events = await _fetch_session_events(session_id)
+    if not events:
+        raise KeyError(f"session_id={session_id} has no telemetry events")
+    return [_public_event(e) for e in events]
+
+
 def _public_event(e: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": e["id"],
@@ -222,6 +229,10 @@ def _build_tree(events: list[dict[str, Any]]) -> dict[str, Any]:
         spawned_by = node.get("spawned_by_spawn_id")
         if spawned_by and spawned_by in spawn_to_parent_turn:
             parent_turn_id = spawn_to_parent_turn[spawned_by]
+            # Skip self-reference (parent turn polluted by its own spawn_id)
+            if parent_turn_id == turn_id:
+                roots.append(node)
+                continue
             parent_node = turns_by_id.get(parent_turn_id)
             if parent_node is not None:
                 parent_node["child_turns"].append(node)
@@ -258,11 +269,7 @@ async def get_session_tree(session_id: int) -> dict[str, Any]:
 # ── Per-agent rollup ──────────────────────────────────────
 
 
-async def get_run_agents(run_id: str) -> list[dict[str, Any]]:
-    events = await _fetch_run_events(run_id)
-    if not events:
-        raise KeyError(f"run_id={run_id!r} has no telemetry events")
-
+def _agents_rollup(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_role: dict[str, dict[str, Any]] = defaultdict(
         lambda: {
             "agent_role": None,
@@ -276,7 +283,6 @@ async def get_run_agents(run_id: str) -> list[dict[str, Any]]:
         }
     )
 
-    # Index turn_id -> agent_role for linking llm/tool events.
     turn_role: dict[str, str] = {}
     for e in events:
         if e["event_type"] == "agent_turn":
@@ -320,6 +326,20 @@ async def get_run_agents(run_id: str) -> list[dict[str, Any]]:
         agg["cost_usd"] = round(agg["cost_usd"], 6)
         result.append(agg)
     return result
+
+
+async def get_run_agents(run_id: str) -> list[dict[str, Any]]:
+    events = await _fetch_run_events(run_id)
+    if not events:
+        raise KeyError(f"run_id={run_id!r} has no telemetry events")
+    return _agents_rollup(events)
+
+
+async def get_session_agents(session_id: int) -> list[dict[str, Any]]:
+    events = await _fetch_session_events(session_id)
+    if not events:
+        raise KeyError(f"session_id={session_id} has no telemetry events")
+    return _agents_rollup(events)
 
 
 async def get_run_errors(run_id: str) -> list[dict[str, Any]]:
