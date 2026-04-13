@@ -12,7 +12,7 @@ from src.models import Memory
 
 logger = logging.getLogger(__name__)
 
-VALID_TYPES = {"fact", "preference", "context", "instruction"}
+VALID_TYPES = {"user", "feedback", "project", "reference"}
 
 
 class MemoryNotFoundError(Exception):

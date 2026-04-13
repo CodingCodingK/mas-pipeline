@@ -1,29 +1,4 @@
-## Purpose
-Built-in agent tools (`memory_read`, `memory_write`) that expose the project memory store to chat agents so they can list, fetch, create, update, and delete memories on their own.
-## Requirements
-### Requirement: MemoryReadTool
-The system SHALL provide a `MemoryReadTool` that allows agents to list and read memories.
-- `name`: "memory_read"
-- `input_schema`: `{"action": {"type": "string", "enum": ["list", "get"]}, "memory_id": {"type": "integer"}}`
-  - `action` is required; `memory_id` is required when action="get"
-- `is_concurrency_safe`: always `True`
-- `is_read_only`: always `True`
-
-#### Scenario: List memories
-- **WHEN** `memory_read` is called with `{"action": "list"}`
-- **THEN** it SHALL return `ToolResult(output=<formatted memory list with id, type, name, description>, success=True)`
-
-#### Scenario: Get specific memory
-- **WHEN** `memory_read` is called with `{"action": "get", "memory_id": 3}`
-- **THEN** it SHALL return `ToolResult(output=<full memory content>, success=True)`
-
-#### Scenario: Memory not found
-- **WHEN** `memory_read` is called with `{"action": "get", "memory_id": 999}` and no such memory exists
-- **THEN** it SHALL return `ToolResult(output="Error: memory not found: 999", success=False)`
-
-#### Scenario: List with no memories
-- **WHEN** `memory_read` is called with `{"action": "list"}` and the project has no memories
-- **THEN** it SHALL return `ToolResult(output="No memories found for this project.", success=True)`
+## MODIFIED Requirements
 
 ### Requirement: MemoryWriteTool
 The system SHALL provide a `MemoryWriteTool` that allows agents to create, update, and delete memories.
@@ -52,11 +27,3 @@ The system SHALL provide a `MemoryWriteTool` that allows agents to create, updat
 #### Scenario: Write with invalid type
 - **WHEN** `memory_write` is called with `{"action": "write", "type": "fact", ...}` (or any other value not in the enum)
 - **THEN** it SHALL return `ToolResult(output="Error: invalid memory type 'fact'. Valid: user, feedback, project, reference", success=False)`
-
-### Requirement: Memory tools access project_id from context
-Both MemoryReadTool and MemoryWriteTool SHALL obtain `project_id` from `ToolContext.project_id` to scope all operations to the current project.
-
-#### Scenario: Tool uses context project_id
-- **WHEN** either memory tool is called with a ToolContext where `project_id=5`
-- **THEN** all memory operations SHALL be scoped to project 5
-

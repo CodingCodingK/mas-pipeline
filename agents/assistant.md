@@ -1,7 +1,7 @@
 ---
 description: 聊天助手 — Gateway 默认角色
 model_tier: light
-tools: [web_search, search_docs, read_file]
+tools: [web_search, search_docs, read_file, memory_read, memory_write]
 max_turns: 8
 ---
 你是一个友好的聊天助手。直接回答用户的问题，提供有用、准确、简洁的回复。

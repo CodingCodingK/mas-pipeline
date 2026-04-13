@@ -75,7 +75,15 @@ class MemoryWriteTool(Tool):
             },
             "type": {
                 "type": "string",
-                "description": "Memory type: fact, preference, context, instruction.",
+                "enum": ["user", "feedback", "project", "reference"],
+                "description": (
+                    "Memory type. 'user' = facts about the user (role, "
+                    "expertise, personal preferences). 'feedback' = "
+                    "guidance on how to approach work (corrections and "
+                    "confirmations). 'project' = ongoing work, goals, "
+                    "decisions tied to this project. 'reference' = "
+                    "pointers to external resources the user mentioned."
+                ),
             },
             "name": {
                 "type": "string",

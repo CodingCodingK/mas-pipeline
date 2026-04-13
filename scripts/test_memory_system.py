@@ -32,10 +32,10 @@ print("\n=== 1. Memory store type validation ===")
 from src.memory.store import VALID_TYPES
 
 check("Valid types defined", len(VALID_TYPES) == 4)
-check("fact in types", "fact" in VALID_TYPES)
-check("preference in types", "preference" in VALID_TYPES)
-check("context in types", "context" in VALID_TYPES)
-check("instruction in types", "instruction" in VALID_TYPES)
+check("user in types", "user" in VALID_TYPES)
+check("feedback in types", "feedback" in VALID_TYPES)
+check("project in types", "project" in VALID_TYPES)
+check("reference in types", "reference" in VALID_TYPES)
 
 
 async def test_write_invalid_type():
@@ -212,7 +212,7 @@ asyncio.run(test_read_list())
 
 
 async def test_read_get():
-    fake_mem = FakeMemory(id=1, type="fact", name="Pref", description="desc", content="full content here")
+    fake_mem = FakeMemory(id=1, type="user", name="Pref", description="desc", content="full content here")
     with patch("src.memory.store.get_memory", AsyncMock(return_value=fake_mem)):
         result = await read_tool.call({"action": "get", "memory_id": 1}, ctx)
     check("Get returns content", "full content here" in result.output)
@@ -240,7 +240,7 @@ async def test_write_tool_success():
     fake_mem = FakeMemory(id=42, name="Test mem")
     with patch("src.memory.store.write_memory", AsyncMock(return_value=fake_mem)):
         result = await write_tool.call(
-            {"action": "write", "type": "fact", "name": "Test mem", "description": "d", "content": "c"},
+            {"action": "write", "type": "user", "name": "Test mem", "description": "d", "content": "c"},
             ctx,
         )
     check("Write success", result.success)

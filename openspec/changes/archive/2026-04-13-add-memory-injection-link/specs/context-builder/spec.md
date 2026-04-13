@@ -1,20 +1,4 @@
-## Purpose
-Parse agent role files and assemble system prompts from layered fragments (identity, role, memory, skill). Also provides OpenAI-format message assembly for the agent loop.
-## Requirements
-### Requirement: Role file parsing extracts frontmatter and body
-`parse_role_file(path)` SHALL read a markdown file, separate YAML frontmatter (delimited by `---`) from the body, and return a tuple of (metadata dict, body string). If no frontmatter is present, metadata SHALL be an empty dict and body SHALL be the full file content.
-
-#### Scenario: File with frontmatter
-- **WHEN** parse_role_file is called with a file containing `---\ndescription: helper\nmodel_tier: medium\ntools: [read_file]\n---\nYou are a helper.`
-- **THEN** it returns `({"description": "helper", "model_tier": "medium", "tools": ["read_file"]}, "You are a helper.")`
-
-#### Scenario: File without frontmatter
-- **WHEN** parse_role_file is called with a file containing only `You are a plain agent.`
-- **THEN** it returns `({}, "You are a plain agent.")`
-
-#### Scenario: Frontmatter fields available for agent factory
-- **WHEN** frontmatter contains `model_tier` and `tools` fields
-- **THEN** these values SHALL be extractable as `str` and `list[str]` respectively for use by create_agent (Phase 2.5)
+## MODIFIED Requirements
 
 ### Requirement: System prompt is built in layers
 `build_system_prompt(role_body, project_root, memory_context=None, skill_definitions=None)` SHALL construct a system prompt by concatenating layers in order: identity, role, memory, skill. Each layer that returns None SHALL be skipped.
@@ -78,22 +62,3 @@ The `_MEMORY_GUIDE` constant SHALL be a CC-`memdir`-style behavioural guide adap
 #### Scenario: No runtime context
 - **WHEN** build_messages is called with runtime_context=None
 - **THEN** the system message content SHALL be the unmodified system_prompt
-
-### Requirement: General agent role file exists
-An `agents/general.md` file SHALL exist with frontmatter containing description, model_tier, and tools fields, and a body containing general-purpose assistant instructions.
-
-#### Scenario: General agent frontmatter
-- **WHEN** agents/general.md is parsed
-- **THEN** frontmatter SHALL contain `description`, `model_tier: medium`, and `tools: [read_file, shell]`
-
-#### Scenario: General agent body
-- **WHEN** agents/general.md body is read
-- **THEN** it SHALL contain instructions for a general-purpose assistant
-
-### Requirement: End-to-end Phase 1 verification
-A verification script SHALL demonstrate the complete Phase 1 chain: parse role file → build system prompt → build messages → construct AgentState → run agent_loop → LLM calls tool → result fed back → final response.
-
-#### Scenario: Single agent reads a file via LLM
-- **WHEN** test_single_agent.py is run with a valid LLM API key
-- **THEN** the agent receives a user request, the LLM decides to use read_file, the tool executes, the result is fed back, and the LLM produces a final text response
-

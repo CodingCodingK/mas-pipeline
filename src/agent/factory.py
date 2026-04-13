@@ -139,7 +139,12 @@ async def create_agent(
     )
 
     # 10. Build messages
-    system_prompt = build_system_prompt(role_body, skill_definitions=filtered_skills)
+    memory_context = await _load_memory_list(project_id, registry)
+    system_prompt = build_system_prompt(
+        role_body,
+        memory_context=memory_context,
+        skill_definitions=filtered_skills,
+    )
     messages = build_messages(
         system_prompt=system_prompt,
         history=[],
@@ -154,6 +159,45 @@ async def create_agent(
         orchestrator=orchestrator,
         tool_context=tool_context,
         max_turns=max_turns,
+    )
+
+
+async def _load_memory_list(
+    project_id: int | None,
+    registry: ToolRegistry,
+) -> str | None:
+    """Fetch project memories for Path A (always-on list injection).
+
+    Returns:
+      - None if the agent lacks memory tools or has no project context
+        (skip the memory layer entirely).
+      - "" if the agent has memory tools but the project has no memories yet
+        (inject the guide + empty-state hint).
+      - Formatted list ``[id] (type) name -- description`` otherwise.
+    """
+    if project_id is None:
+        return None
+    has_memory_tool = False
+    for probe in ("memory_read", "memory_write"):
+        try:
+            registry.get(probe)
+            has_memory_tool = True
+            break
+        except KeyError:
+            continue
+    if not has_memory_tool:
+        return None
+    try:
+        from src.memory.store import list_memories
+
+        memories = await list_memories(project_id)
+    except Exception:
+        logger.exception("Failed to load memory list for project %s", project_id)
+        return ""
+    if not memories:
+        return ""
+    return "\n".join(
+        f"[{m.id}] ({m.type}) {m.name} -- {m.description}" for m in memories
     )
 
 
