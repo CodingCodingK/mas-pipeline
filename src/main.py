@@ -19,6 +19,7 @@ from typing import AsyncIterator
 from fastapi import APIRouter, FastAPI
 
 from src.api.agents import router as agents_router
+from src.api.metrics import metrics_endpoint, setup_metrics
 from src.api.export import router as export_router
 from src.api.files import router as files_router
 from src.api.jobs import router as jobs_router
@@ -35,7 +36,7 @@ from src.notify.api import router as notify_router
 from src.notify.channels import DiscordChannel, SseChannel, WechatChannel
 from src.telemetry.api import admin_router as telemetry_admin_router
 from src.telemetry.api import router as telemetry_router
-from src.db import close_db, init_db
+from src.db import check_pool_sizing, close_db, init_db
 from src.engine.session_registry import (
     _idle_gc_task,
     _listen_session_wakeup,
@@ -53,14 +54,26 @@ logger = logging.getLogger(__name__)
 
 
 def _check_worker_concurrency() -> None:
-    raw = os.environ.get("WEB_CONCURRENCY")
-    if raw and raw != "1":
-        logger.warning(
-            "WEB_CONCURRENCY=%s detected. SessionRunner is single-process; "
-            "multi-worker deployments need sticky routing (not yet implemented). "
-            "Run with --workers 1 until then.",
-            raw,
-        )
+    """Hard-fail if any worker-count env var > 1.
+
+    SessionRunner keeps in-process state (runner registry, SSE subscriber
+    queues, bus subscribers). Multi-worker deployments would route the same
+    session to different processes each holding its own state — silent data
+    loss. Single-worker is the contract until sticky routing lands.
+
+    Uvicorn --reload does NOT set these vars, so dev hot-reload still works.
+    """
+    for var in ("WEB_CONCURRENCY", "UVICORN_WORKERS"):
+        raw = os.environ.get(var)
+        if raw and raw.strip() not in ("", "1"):
+            logger.critical(
+                "%s=%s rejected. mas-pipeline runs single-worker only "
+                "(SessionRunner holds in-process state). See "
+                ".plan/rest_api_deployment_risks.md risk #1. Exiting.",
+                var,
+                raw,
+            )
+            raise SystemExit(1)
 
 
 @asynccontextmanager
@@ -82,10 +95,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     sandbox_mode = init_sandbox(settings.sandbox)
     print(f"[mas-pipeline] Sandbox mode: {sandbox_mode.value}")
+    _check_worker_concurrency()
+
     await init_db()
     print("[mas-pipeline] Database connections verified")
+    await check_pool_sizing()
 
-    _check_worker_concurrency()
+    # Bind Prometheus gauge callbacks to live registries + engine pool.
+    setup_metrics()
 
     # Event bus must exist before any consumer subscribes.
     tele_cfg = settings.telemetry
@@ -212,6 +229,10 @@ app.include_router(api_router)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# Prometheus scrape endpoint — root prefix, unauthenticated.
+app.add_api_route("/metrics", metrics_endpoint, methods=["GET"], include_in_schema=False)
 
 
 if __name__ == "__main__":

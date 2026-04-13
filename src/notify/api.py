@@ -62,6 +62,8 @@ async def notify_stream(request: Request) -> StreamingResponse:
     queue = sse.register(user.id, max_size=settings.notify.sse_queue_size)
 
     async def event_stream():
+        from src.api.metrics import sse_connect, sse_disconnect
+        sse_connect()
         try:
             while True:
                 if await request.is_disconnected():
@@ -85,6 +87,7 @@ async def notify_stream(request: Request) -> StreamingResponse:
                 )
         finally:
             sse.unregister(user.id, queue)
+            sse_disconnect()
 
     headers = {
         "Cache-Control": "no-cache, no-transform",

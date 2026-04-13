@@ -63,12 +63,47 @@ def get_engine() -> AsyncEngine:
         settings = get_settings()
         _engine = create_async_engine(
             settings.database.postgres_url,
-            pool_size=10,
-            max_overflow=20,
-            pool_pre_ping=True,
+            pool_size=settings.database.pool_size,
+            max_overflow=settings.database.max_overflow,
+            pool_pre_ping=settings.database.pool_pre_ping,
             echo=False,
         )
     return _engine
+
+
+async def check_pool_sizing() -> None:
+    """Warn (do not fail) if the configured pool may exhaust PG max_connections.
+
+    Runs `SHOW max_connections` and compares against pool_size + max_overflow.
+    Informational only — ops may have reserved connections for other consumers.
+    """
+    import logging
+    from sqlalchemy import text
+
+    logger = logging.getLogger(__name__)
+    settings = get_settings()
+    effective = settings.database.pool_size + settings.database.max_overflow
+
+    engine = get_engine()
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(text("SHOW max_connections"))
+            row = result.scalar()
+            pg_max = int(row) if row is not None else 0
+    except Exception as exc:
+        logger.warning("check_pool_sizing: SHOW max_connections failed: %s", exc)
+        return
+
+    if effective > pg_max - 10:
+        logger.warning(
+            "DB pool oversubscribed: pool_size(%d) + max_overflow(%d) = %d "
+            "exceeds PG max_connections(%d) - 10 reserved. Reduce pool or raise "
+            "PG max_connections.",
+            settings.database.pool_size,
+            settings.database.max_overflow,
+            effective,
+            pg_max,
+        )
 
 
 def get_session_factory() -> async_sessionmaker[AsyncSession]:

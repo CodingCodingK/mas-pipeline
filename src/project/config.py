@@ -80,6 +80,9 @@ class EmbeddingConfig(BaseModel):
 class DatabaseConfig(BaseModel):
     postgres_url: str = "postgresql+asyncpg://mas:mas_dev_2024@localhost:5432/mas_pipeline"
     redis_url: str = "redis://localhost:6379/0"
+    pool_size: int = 20
+    max_overflow: int = 40
+    pool_pre_ping: bool = True
 
 
 class AgentConfig(BaseModel):

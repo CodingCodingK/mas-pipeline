@@ -48,28 +48,33 @@ def _sse_frame(event: str, data: dict) -> str:
 async def _stream_job_events(job: Job, request: Request) -> AsyncIterator[str]:
     """Yield SSE frames for a job until sentinel or client disconnect.
     Heartbeats keep proxies from closing idle connections."""
-    # Fast path: already finished — replay last_event then close.
-    if job.status in ("done", "failed"):
-        yield _sse_frame("progress", _terminal_replay_event(job))
-        return
-
-    while True:
-        if await request.is_disconnected():
+    from src.api.metrics import sse_connect, sse_disconnect
+    sse_connect()
+    try:
+        # Fast path: already finished — replay last_event then close.
+        if job.status in ("done", "failed"):
+            yield _sse_frame("progress", _terminal_replay_event(job))
             return
 
-        try:
-            item = await asyncio.wait_for(
-                job.queue.get(), timeout=_HEARTBEAT_INTERVAL_SEC
-            )
-        except asyncio.TimeoutError:
-            yield _sse_frame("heartbeat", {})
-            continue
+        while True:
+            if await request.is_disconnected():
+                return
 
-        if item is None:
-            # Sentinel — finished; close the stream.
-            return
+            try:
+                item = await asyncio.wait_for(
+                    job.queue.get(), timeout=_HEARTBEAT_INTERVAL_SEC
+                )
+            except asyncio.TimeoutError:
+                yield _sse_frame("heartbeat", {})
+                continue
 
-        yield _sse_frame("progress", item)
+            if item is None:
+                # Sentinel — finished; close the stream.
+                return
+
+            yield _sse_frame("progress", item)
+    finally:
+        sse_disconnect()
 
 
 @router.get("/{job_id}/stream")

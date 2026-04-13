@@ -192,6 +192,8 @@ async def trigger_pipeline(
     task = asyncio.create_task(_do_run(), name=f"pipeline:{run.run_id}")
 
     async def event_stream():
+        from src.api.metrics import sse_connect, sse_disconnect
+        sse_connect()
         try:
             yield (
                 f"event: started\n"
@@ -220,6 +222,7 @@ async def trigger_pipeline(
                     return
         finally:
             unsubscribe_pipeline_events(run.run_id, queue)
+            sse_disconnect()
 
     headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     return StreamingResponse(

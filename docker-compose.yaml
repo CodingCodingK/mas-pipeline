@@ -100,7 +100,47 @@ services:
     ports:
       - "${WEB_PORT:-80}:80"
 
+  # ── Monitoring (opt-in) ───────────────────────────────────
+  # Start with: docker compose --profile monitoring up
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: mas-prometheus
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  grafana:
+    image: grafana/grafana-oss:10.4.10
+    container_name: mas-grafana
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    depends_on:
+      prometheus:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+
 volumes:
   pg_data:
   redis_data:
   ollama_data:
+  prometheus_data:
+  grafana_data:

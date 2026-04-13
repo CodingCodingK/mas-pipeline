@@ -38,6 +38,8 @@ dependencies = [
     "python-docx>=1.1",
     # Token counting
     "tiktoken>=0.8",
+    # Metrics exposition
+    "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]

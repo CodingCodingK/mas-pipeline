@@ -35,6 +35,10 @@ tavily:
 database:
   postgres_url: postgresql+psycopg://${POSTGRES_USER:mas}:${POSTGRES_PASSWORD:mas_dev_2024}@${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:mas_pipeline}
   redis_url: redis://${REDIS_HOST:localhost}:${REDIS_PORT:6379}/0
+  # SQLAlchemy pool sizing. Keep pool_size + max_overflow ≤ PG max_connections - 10.
+  pool_size: ${DATABASE_POOL_SIZE:20}
+  max_overflow: ${DATABASE_MAX_OVERFLOW:40}
+  pool_pre_ping: true
 
 agent:
   max_turns: 50

@@ -206,6 +206,8 @@ async def session_events(session_id: int, request: Request) -> StreamingResponse
     conv_id = session.conversation_id
 
     async def event_stream():
+        from src.api.metrics import sse_connect, sse_disconnect
+        sse_connect()
         try:
             # ── Backfill ──
             if last_event_id >= 0:
@@ -236,6 +238,7 @@ async def session_events(session_id: int, request: Request) -> StreamingResponse
                 yield sse_payload
         finally:
             runner.remove_subscriber(queue)
+            sse_disconnect()
 
     headers = {
         "Cache-Control": "no-cache",

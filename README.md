@@ -62,6 +62,36 @@ Then run `python scripts/migrate_embedding_dim.py --yes` to reshape `document_ch
 
 Embedding config is **independent** of the chat provider block — setting `providers.openai.api_base` to a chat-only proxy does not affect the embedder.
 
+## Monitoring (optional)
+
+`mas-pipeline` exposes a Prometheus-format `/metrics` endpoint covering 5 operational signals:
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `sessions_active` | gauge | SessionRunner instances currently alive |
+| `workers_running` | gauge | In-flight jobs + in-flight sub-agent workers |
+| `pg_connections_used` | gauge | SQLAlchemy pool connections checked out |
+| `sse_connections` | gauge | Open SSE long-poll connections |
+| `messages_total` | counter | Cumulative event-bus emits |
+
+A bundled Prometheus + Grafana stack is shipped as an **opt-in compose profile** — default `docker compose up` does NOT start it.
+
+```bash
+# Opt in:
+docker compose --profile monitoring up
+```
+
+Then open:
+
+- Grafana at `http://localhost:3000` (login `admin` / `admin`)
+- The pre-provisioned `mas-pipeline` dashboard appears automatically under Dashboards
+
+Ports: `PROMETHEUS_PORT=9090` / `GRAFANA_PORT=3000` (both configurable via `.env`).
+
+The metrics endpoint is always live (even without the monitoring profile) — hit `http://localhost/metrics` directly with `curl` to see the raw text format.
+
+> **Single-worker constraint**: `mas-pipeline` runs as a single uvicorn worker. Setting `WEB_CONCURRENCY>1` or `UVICORN_WORKERS>1` causes startup to fail loudly — SessionRunner state is in-process and multi-worker routing is not yet supported.
+
 ## Prebuilt Pipelines
 
 - **Blog Generation**: Researcher → Writer → Reviewer → Editor

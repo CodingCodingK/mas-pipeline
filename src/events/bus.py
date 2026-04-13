@@ -63,6 +63,11 @@ class EventBus:
         """
         if self._closed:
             return
+        try:
+            from src.api.metrics import messages_total
+            messages_total.inc()
+        except Exception:
+            pass
         for sub in self._subscribers:
             try:
                 sub.queue.put_nowait(event)
