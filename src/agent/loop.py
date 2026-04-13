@@ -19,6 +19,7 @@ from src.agent.compact import (
     micro_compact,
     reactive_compact,
 )
+from src.agent.context import slice_messages_for_prompt
 from src.agent.messages import format_assistant_msg, format_tool_msg
 from src.agent.state import AgentState, ExitReason
 from src.llm.adapter import LLMResponse, ToolCallRequest, Usage
@@ -56,21 +57,36 @@ async def agent_loop(state: AgentState) -> AsyncIterator[StreamEvent]:
         # --- compact pre-processing ---
         micro_compact(state.messages, keep_recent=keep_recent)
 
-        tokens = estimate_tokens(state.messages)
-        if tokens > thresholds.blocking_limit:
-            logger.warning("Token count %d exceeds blocking limit %d", tokens, thresholds.blocking_limit)
-            state.exit_reason = ExitReason.TOKEN_LIMIT
-            return
+        # Count only the post-compact-boundary slice. state.messages retains
+        # pre-boundary entries for PG audit, but they're invisible to the
+        # model and must not be counted against the context budget — otherwise
+        # auto_compact would run every turn and grow the list without bound.
+        tokens = estimate_tokens(slice_messages_for_prompt(state.messages))
 
-        if tokens > thresholds.autocompact_threshold:
-            logger.info("Token count %d exceeds autocompact threshold %d, compacting", tokens, thresholds.autocompact_threshold)
-            result = await auto_compact(state.messages, state.adapter, model)
-            state.messages = result.messages
-
-            if estimate_tokens(state.messages) > thresholds.blocking_limit:
-                logger.warning("Still over blocking limit after autocompact")
-                state.exit_reason = ExitReason.TOKEN_LIMIT
-                return
+        if tokens > thresholds.autocompact_threshold and not state.compact_breaker_tripped:
+            logger.info(
+                "Token count %d exceeds autocompact threshold %d, compacting",
+                tokens, thresholds.autocompact_threshold,
+            )
+            try:
+                result = await auto_compact(
+                    state.messages, state.adapter, model, turn=state.turn_count,
+                )
+                state.messages = result.messages
+                state.consecutive_compact_failures = 0
+            except Exception:
+                state.consecutive_compact_failures += 1
+                logger.warning(
+                    "auto_compact failed (%d consecutive)",
+                    state.consecutive_compact_failures,
+                    exc_info=True,
+                )
+                if state.consecutive_compact_failures >= 3 and not state.compact_breaker_tripped:
+                    state.compact_breaker_tripped = True
+                    logger.info(
+                        "Compact circuit breaker tripped after 3 failures; "
+                        "skipping compact for the rest of this runner"
+                    )
 
         # Abort check 1: before LLM call
         if _is_aborted(state):
@@ -91,7 +107,7 @@ async def agent_loop(state: AgentState) -> AsyncIterator[StreamEvent]:
             finish_reason = "stop"
 
             async for event in state.adapter.call_stream(
-                state.messages,
+                slice_messages_for_prompt(state.messages),
                 state.tools.list_definitions(),
             ):
                 if event.type == "text_delta":
@@ -144,15 +160,38 @@ async def agent_loop(state: AgentState) -> AsyncIterator[StreamEvent]:
             collector.record_error(source="llm", exc=exc)
 
             # --- reactive compact ---
-            if _is_context_length_error(exc) and not state.has_attempted_reactive_compact:
+            if (
+                _is_context_length_error(exc)
+                and not state.has_attempted_reactive_compact
+                and not state.compact_breaker_tripped
+            ):
                 logger.info("Context length exceeded, attempting reactive compact")
-                result = await reactive_compact(state.messages, state.adapter, model)
-                state.messages = result.messages
-                state.has_attempted_reactive_compact = True
-                continue
+                try:
+                    result = await reactive_compact(
+                        state.messages, state.adapter, model, turn=state.turn_count,
+                    )
+                    state.messages = result.messages
+                    state.has_attempted_reactive_compact = True
+                    state.consecutive_compact_failures = 0
+                    continue
+                except Exception:
+                    state.consecutive_compact_failures += 1
+                    logger.warning(
+                        "reactive_compact failed (%d consecutive)",
+                        state.consecutive_compact_failures,
+                        exc_info=True,
+                    )
+                    if state.consecutive_compact_failures >= 3 and not state.compact_breaker_tripped:
+                        state.compact_breaker_tripped = True
+                        logger.info(
+                            "Compact circuit breaker tripped after 3 failures; "
+                            "skipping compact for the rest of this runner"
+                        )
+                    # Fall through to the unrecoverable error path below.
 
             if _is_context_length_error(exc):
-                logger.warning("Context length exceeded after reactive compact")
+                logger.warning("Context length exceeded; compact unavailable")
+                yield StreamEvent(type="error", content=str(exc))
                 state.exit_reason = ExitReason.TOKEN_LIMIT
                 return
 

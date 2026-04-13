@@ -132,30 +132,32 @@ print("\n=== 5. Autocompact ===")
 async def test_autocompact():
     # Build messages large enough to trigger split (use small context window via mock)
     msgs = [{"role": "user", "content": f"Message {i} " + "x" * 200} for i in range(50)]
+    original_len = len(msgs)
 
     mock_response = MagicMock()
     mock_response.content = "Summary: 50 messages about testing."
 
-    mock_light = AsyncMock()
-    mock_light.call = AsyncMock(return_value=mock_response)
+    mock_adapter = AsyncMock()
+    mock_adapter.call = AsyncMock(return_value=mock_response)
 
-    # Use tiny context window so split actually triggers
-    small_settings = _mock_settings()
     with (
-        patch("src.agent.compact.get_settings", return_value=small_settings),
+        patch("src.agent.compact.get_settings", return_value=_mock_settings()),
         patch("src.agent.compact.get_context_window", return_value=2000),
-        patch("src.llm.router.route", return_value=mock_light),
-        patch("src.agent.compact._save_summary", AsyncMock()),
     ):
         from src.agent.compact import auto_compact
 
-        result = await auto_compact(msgs, mock_light, "test-model")
+        result = await auto_compact(msgs, mock_adapter, "test-model", turn=7)
 
-    check("Autocompact reduces messages", len(result.messages) < len(msgs))
-    check("Summary present", len(result.summary) > 0)
-    check("Tokens before > after", result.tokens_before > result.tokens_after)
-    check("First msg is summary", "[CONVERSATION SUMMARY]" in result.messages[0]["content"])
-    check("LLM called for summary", mock_light.call.called)
+    check("Append-only: length grew by 2", len(result.messages) == original_len + 2)
+    check("Original messages untouched at head", result.messages[0]["content"].startswith("Message 0"))
+    check("Second-to-last is summary entry", result.messages[-2].get("metadata", {}).get("is_compact_summary") is True)
+    check("Summary content matches LLM output", result.messages[-2]["content"] == "Summary: 50 messages about testing.")
+    check("Last is boundary marker", result.messages[-1].get("metadata", {}).get("is_compact_boundary") is True)
+    check("Boundary records turn", result.messages[-1]["metadata"]["turn"] == 7)
+    check("Summary role is user", result.messages[-2]["role"] == "user")
+    check("Boundary role is system", result.messages[-1]["role"] == "system")
+    check("tokens_after reflects post-boundary slice", result.tokens_after < result.tokens_before)
+    check("LLM called on passed adapter", mock_adapter.call.called)
 
 
 asyncio.run(test_autocompact())
@@ -164,20 +166,76 @@ asyncio.run(test_autocompact())
 async def test_autocompact_too_few():
     msgs = [{"role": "user", "content": "short"}]
 
-    with (
-        patch("src.agent.compact.get_settings", return_value=_mock_settings()),
-        patch("src.llm.router.route"),
-        patch("src.agent.compact._save_summary", AsyncMock()),
-    ):
+    with patch("src.agent.compact.get_settings", return_value=_mock_settings()):
         from src.agent.compact import auto_compact
 
-        result = await auto_compact(msgs, AsyncMock(), "gpt-4o-mini")
+        result = await auto_compact(msgs, AsyncMock(), "gpt-4o-mini", turn=0)
 
-    check("Too few: no compaction", len(result.messages) == 1)
+    check("Too few: messages unchanged", len(result.messages) == 1)
     check("Too few: empty summary", result.summary == "")
 
 
 asyncio.run(test_autocompact_too_few())
+
+
+async def test_autocompact_retry_on_overflow():
+    """Adapter raises prompt_too_long once, succeeds on retry with smaller blob."""
+    msgs = [{"role": "user", "content": f"M{i} " + "z" * 200} for i in range(50)]
+
+    success_response = MagicMock()
+    success_response.content = "Recovered summary."
+
+    call_count = {"n": 0}
+
+    async def fake_call(messages, tools=None):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RuntimeError("context_length_exceeded: prompt too long")
+        return success_response
+
+    mock_adapter = MagicMock()
+    mock_adapter.call = fake_call
+
+    with (
+        patch("src.agent.compact.get_settings", return_value=_mock_settings()),
+        patch("src.agent.compact.get_context_window", return_value=2000),
+    ):
+        from src.agent.compact import auto_compact
+
+        result = await auto_compact(msgs, mock_adapter, "test-model")
+
+    check("Retry eventually succeeds", result.summary == "Recovered summary.")
+    check("Adapter called twice (1 fail + 1 retry)", call_count["n"] == 2)
+
+
+asyncio.run(test_autocompact_retry_on_overflow())
+
+
+async def test_autocompact_retry_exhausted():
+    """Both attempts fail with context-too-long → re-raise."""
+    msgs = [{"role": "user", "content": f"M{i} " + "z" * 200} for i in range(50)]
+
+    async def always_fail(messages, tools=None):
+        raise RuntimeError("prompt_too_long")
+
+    mock_adapter = MagicMock()
+    mock_adapter.call = always_fail
+
+    raised = False
+    with (
+        patch("src.agent.compact.get_settings", return_value=_mock_settings()),
+        patch("src.agent.compact.get_context_window", return_value=2000),
+    ):
+        from src.agent.compact import auto_compact
+        try:
+            await auto_compact(msgs, mock_adapter, "test-model")
+        except RuntimeError:
+            raised = True
+
+    check("Retry exhausted re-raises", raised)
+
+
+asyncio.run(test_autocompact_retry_exhausted())
 
 
 # ── 6. Reactive compact (mocked) ────────────────────────────
@@ -187,29 +245,83 @@ print("\n=== 6. Reactive compact ===")
 
 async def test_reactive():
     msgs = [{"role": "user", "content": f"Msg {i} " + "y" * 200} for i in range(50)]
+    original_len = len(msgs)
 
     mock_response = MagicMock()
     mock_response.content = "Emergency summary."
 
-    mock_light = AsyncMock()
-    mock_light.call = AsyncMock(return_value=mock_response)
+    mock_adapter = AsyncMock()
+    mock_adapter.call = AsyncMock(return_value=mock_response)
 
     with (
         patch("src.agent.compact.get_settings", return_value=_mock_settings()),
         patch("src.agent.compact.get_context_window", return_value=2000),
-        patch("src.llm.router.route", return_value=mock_light),
-        patch("src.agent.compact._save_summary", AsyncMock()),
     ):
         from src.agent.compact import reactive_compact
 
-        result = await reactive_compact(msgs, mock_light, "test-model")
+        result = await reactive_compact(msgs, mock_adapter, "test-model", turn=3)
 
-    check("Reactive reduces messages", len(result.messages) < len(msgs))
-    check("Reactive more aggressive than auto", True)  # 20% vs 30% budget
-    check("Reactive summary present", len(result.summary) > 0)
+    check("Reactive append-only", len(result.messages) == original_len + 2)
+    check("Reactive tail has boundary", result.messages[-1]["metadata"]["is_compact_boundary"] is True)
+    check("Reactive summary present", result.summary == "Emergency summary.")
 
 
 asyncio.run(test_reactive())
+
+
+# ── 6b. Cascading compacts ──────────────────────────────────
+
+print("\n=== 6b. Cascading compacts ===")
+
+
+async def test_cascading_compacts():
+    """Two successive compacts: second one should only operate on post-first-boundary slice."""
+    msgs = [{"role": "user", "content": f"Msg {i} " + "x" * 200} for i in range(50)]
+
+    first_response = MagicMock()
+    first_response.content = "First summary."
+    second_response = MagicMock()
+    second_response.content = "Second summary."
+
+    call_log = []
+
+    async def fake_call(messages, tools=None):
+        call_log.append(messages)
+        return first_response if len(call_log) == 1 else second_response
+
+    mock_adapter = MagicMock()
+    mock_adapter.call = fake_call
+
+    with (
+        patch("src.agent.compact.get_settings", return_value=_mock_settings()),
+        patch("src.agent.compact.get_context_window", return_value=2000),
+    ):
+        from src.agent.compact import auto_compact
+
+        result1 = await auto_compact(msgs, mock_adapter, "test-model", turn=1)
+        # Append some more messages to trigger a second compact
+        result1.messages.extend(
+            {"role": "user", "content": f"Post {i} " + "q" * 200} for i in range(50)
+        )
+        result2 = await auto_compact(result1.messages, mock_adapter, "test-model", turn=2)
+
+    check("Second compact appends (not shrinks)", len(result2.messages) > len(result1.messages))
+    # The second summary payload must not include pre-first-boundary raw content
+    second_prompt_user_msg = call_log[1][1]["content"]
+    check(
+        "Second compact summarizes only post-first-boundary slice",
+        "Msg 0" not in second_prompt_user_msg,
+        f"leak: {second_prompt_user_msg[:200]}",
+    )
+    # Both boundary markers preserved in log
+    boundaries = [
+        i for i, m in enumerate(result2.messages)
+        if (m.get("metadata") or {}).get("is_compact_boundary")
+    ]
+    check("Two boundary markers retained", len(boundaries) == 2)
+
+
+asyncio.run(test_cascading_compacts())
 
 
 # ── 7. CompactResult and CompactThresholds ───────────────────

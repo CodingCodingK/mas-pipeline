@@ -99,29 +99,45 @@ async def test_microcompact_called():
 asyncio.run(test_microcompact_called())
 
 
-# ── 3. Blocking limit triggers TOKEN_LIMIT ───────────────────
+# ── 3. Blocking limit is no longer enforced at loop level ───
 
-print("\n=== 3. Blocking limit ===")
+print("\n=== 3. No blocking-limit early return (align-compact-with-cc) ===")
 
 
-async def test_blocking_limit():
+async def test_no_blocking_limit_early_return():
+    """Old behavior: tokens > blocking_limit short-circuited with TOKEN_LIMIT.
+    New behavior (CC-aligned): blocking_limit is a no-op in the loop; compact
+    is the only lever. If compact succeeds, the loop proceeds normally.
+    """
     state = _make_state()
+
+    from src.agent.compact import CompactResult
+    compact_result = CompactResult(
+        messages=state.messages + [
+            {"role": "user", "content": "sum", "metadata": {"is_compact_summary": True}},
+            {"role": "system", "content": "", "metadata": {"is_compact_boundary": True, "turn": 0}},
+        ],
+        summary="sum",
+        tokens_before=3000,
+        tokens_after=100,
+    )
 
     with (
         patch("src.agent.loop.micro_compact", MagicMock(return_value=state.messages)),
-        patch("src.agent.loop.estimate_tokens", return_value=3000),  # exceeds blocking=2000
+        patch("src.agent.loop.estimate_tokens", return_value=3000),
         patch("src.agent.loop.get_thresholds", return_value=_mock_thresholds()),
         patch("src.agent.loop.get_settings") as mock_settings,
+        patch("src.agent.loop.auto_compact", AsyncMock(return_value=compact_result)),
     ):
         mock_settings.return_value.compact.micro_keep_recent = 3
         from src.agent.loop import run_agent_to_completion
 
         result = await run_agent_to_completion(state)
 
-    check("Blocking limit returns TOKEN_LIMIT", result == ExitReason.TOKEN_LIMIT)
+    check("No TOKEN_LIMIT short-circuit; loop runs to completion", result == ExitReason.COMPLETED)
 
 
-asyncio.run(test_blocking_limit())
+asyncio.run(test_no_blocking_limit_early_return())
 
 
 # ── 4. Autocompact triggers on threshold ─────────────────────

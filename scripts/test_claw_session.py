@@ -186,11 +186,11 @@ async def test_history():
 
     with patch("src.bus.session.get_messages", new_callable=AsyncMock, return_value=messages), \
          patch("src.bus.session.clean_orphan_messages", side_effect=lambda m: m):
-        history = await get_session_history(conversation_id=1, max_messages=4)
+        history = await get_session_history(conversation_id=1)
 
-    check("trimmed to max_messages", len(history) == 4)
+    check("full history returned (no cap)", len(history) == 5)
     check("kept latest", history[-1]["content"] == "third")
-    check("dropped oldest", history[0]["content"] == "response")
+    check("kept oldest", history[0]["content"] == "first")
 
 
 asyncio.run(test_history())
@@ -211,7 +211,7 @@ async def test_history_skip_tool():
 
     with patch("src.bus.session.get_messages", new_callable=AsyncMock, return_value=messages), \
          patch("src.bus.session.clean_orphan_messages", side_effect=lambda m: m):
-        history = await get_session_history(conversation_id=1, max_messages=50)
+        history = await get_session_history(conversation_id=1)
 
     check("tool results stripped", len(history) == 2)
     check("starts with user", history[0]["role"] == "user")

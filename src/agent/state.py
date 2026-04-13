@@ -40,6 +40,12 @@ class AgentState:
     max_turns: int = 50
     # Phase 3 compact
     has_attempted_reactive_compact: bool = False
+    # align-compact-with-cc: silent circuit breaker for compact failures.
+    # Counter increments on auto/reactive_compact exception, resets on success.
+    # When it reaches 3, `compact_breaker_tripped` flips True and further
+    # compact calls are skipped for the remainder of the runner's lifetime.
+    consecutive_compact_failures: int = 0
+    compact_breaker_tripped: bool = False
     # Phase 6.1: SessionRunner waits while sub-agents are still running.
     # spawn_agent increments on launch and decrements when the background task finishes.
     running_agent_count: int = 0

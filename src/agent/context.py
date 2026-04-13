@@ -54,17 +54,77 @@ def build_messages(
 
     If runtime_context is provided, it is appended to the system prompt
     as a '# Runtime Context' section.
+
+    Compact boundary slicing (align-compact-with-cc): before emitting the
+    history portion, scan tail-to-head for the most recent message with
+    `metadata.is_compact_boundary=True`. If found, emit the paired
+    `is_compact_summary` entry (metadata stripped) as the first user turn,
+    then emit only messages AFTER the boundary marker. Messages before the
+    boundary remain in PG for audit but are invisible to the model. When no
+    boundary is present, emit the full history as-is (back-compat).
     """
     prompt = system_prompt
     if runtime_context:
         ctx_lines = "\n".join(f"- {k}: {v}" for k, v in runtime_context.items())
         prompt += f"\n\n# Runtime Context\n{ctx_lines}"
 
+    sliced_history = _slice_at_compact_boundary(history)
+
     return [
         {"role": "system", "content": prompt},
-        *history,
+        *(_strip_metadata(msg) for msg in sliced_history),
         {"role": "user", "content": user_input},
     ]
+
+
+def slice_messages_for_prompt(messages: list[dict]) -> list[dict]:
+    """Return the model-visible slice of an in-memory message list.
+
+    Used by agent_loop to strip metadata and apply compact-boundary slicing
+    before handing messages to the adapter. state.messages may contain
+    pre-boundary entries retained for PG audit; those must not reach the LLM.
+    """
+    sliced = _slice_at_compact_boundary(messages)
+    return [_strip_metadata(msg) for msg in sliced]
+
+
+def _slice_at_compact_boundary(history: list[dict]) -> list[dict]:
+    """Find the most recent compact boundary and emit the visible slice.
+
+    Visible slice = the paired summary entry + every message AFTER the
+    boundary. The boundary marker itself is NOT emitted.
+    """
+    boundary_idx: int | None = None
+    for i in range(len(history) - 1, -1, -1):
+        meta = history[i].get("metadata") or {}
+        if meta.get("is_compact_boundary"):
+            boundary_idx = i
+            break
+
+    if boundary_idx is None:
+        return history
+
+    summary_entry: dict | None = None
+    if boundary_idx > 0:
+        prev = history[boundary_idx - 1]
+        prev_meta = prev.get("metadata") or {}
+        if prev_meta.get("is_compact_summary"):
+            summary_entry = {"role": "user", "content": prev.get("content", "")}
+
+    tail = history[boundary_idx + 1 :]
+    if summary_entry is not None:
+        return [summary_entry, *tail]
+    return tail
+
+
+def _strip_metadata(msg: dict) -> dict:
+    """Return a copy of msg without the `metadata` key.
+
+    Adapters expect plain OpenAI-format dicts and should never see metadata.
+    """
+    if "metadata" not in msg:
+        return msg
+    return {k: v for k, v in msg.items() if k != "metadata"}
 
 
 # --- Layers ---

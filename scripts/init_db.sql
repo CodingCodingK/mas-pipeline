@@ -144,17 +144,10 @@ CREATE TABLE agent_sessions (
 );
 CREATE INDEX idx_agent_sessions_run ON agent_sessions(run_id);
 
--- ============================================================
--- compact_summaries
--- ============================================================
-CREATE TABLE compact_summaries (
-    id          SERIAL PRIMARY KEY,
-    session_id  VARCHAR(255) NOT NULL,
-    summary     TEXT NOT NULL,
-    token_count INTEGER,
-    created_at  TIMESTAMP DEFAULT NOW()
-);
-CREATE INDEX idx_compact_session ON compact_summaries(session_id);
+-- compact_summaries table removed in align-compact-with-cc: compact
+-- summaries are now persisted inline in conversations.messages with
+-- metadata.is_compact_summary=true, matching Claude Code's design.
+DROP TABLE IF EXISTS compact_summaries CASCADE;
 
 -- ============================================================
 -- chat_sessions

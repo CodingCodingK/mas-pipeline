@@ -93,7 +93,7 @@ class SessionRunner:
         role = _MODE_TO_ROLE[self.mode]
 
         # Load history from PG before constructing the agent
-        history = await get_session_history(self.conversation_id, max_messages=200)
+        history = await get_session_history(self.conversation_id)
 
         self.state = await create_agent(
             role=role,

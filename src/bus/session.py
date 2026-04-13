@@ -132,19 +132,18 @@ async def refresh_session(
             session.last_active_at = datetime.utcnow()
 
 
-async def get_session_history(
-    conversation_id: int,
-    max_messages: int = 50,
-) -> list[dict]:
-    """Load messages from Conversation, clean orphans, trim to max_messages."""
+async def get_session_history(conversation_id: int) -> list[dict]:
+    """Load the FULL message history for a conversation, cleaned of orphans.
+
+    align-compact-with-cc: no truncation. Matches CC's loadFullLog on
+    resume. Any size constraint is enforced at the compact layer, not here —
+    truncating on load would hide early turns from compact entirely.
+    """
     messages = await get_messages(conversation_id)
     messages = clean_orphan_messages(messages)
 
-    # Trim to last N messages
-    if max_messages > 0 and len(messages) > max_messages:
-        messages = messages[-max_messages:]
-
-    # Ensure we don't start mid-turn (with a tool result)
+    # Ensure we don't start mid-turn (with a tool result). Still needed
+    # because the very first persisted message must anchor to a real turn.
     while messages and messages[0].get("role") == "tool":
         messages = messages[1:]
 

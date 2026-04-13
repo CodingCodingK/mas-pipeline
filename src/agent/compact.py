@@ -1,4 +1,18 @@
-"""Compact: token estimation, threshold calculation, micro/auto/reactive compaction."""
+"""Compact: token estimation, threshold calculation, micro/auto/reactive compaction.
+
+Aligns with Claude Code's compact design (src/services/compact/*):
+
+- Compact is APPEND-ONLY: auto_compact / reactive_compact never shrink the
+  input list. They append two new tail entries (a summary message + a
+  boundary marker) so that `_pg_synced_count`-style monotonic counters stay
+  correct and PG retains the full audit log.
+- The summarizer call uses the main agent's adapter + model (not a cheap
+  tier). On prompt-too-long errors we drop the oldest half of the older
+  blob and retry once, mirroring CC's `truncateHeadForPTLRetry`.
+- Pre-compact messages remain in the returned list; `build_messages`
+  filters them out at prompt-assembly time by scanning for the boundary
+  marker flag (`metadata.is_compact_boundary`).
+"""
 
 from __future__ import annotations
 
@@ -30,6 +44,10 @@ _DEFAULT_CONTEXT_WINDOWS: dict[str, int] = {
 }
 DEFAULT_CONTEXT_WINDOW = 128000
 
+# Max prompt-too-long retries inside a single compact call. CC uses the same
+# "drop oldest half, retry once" shape in truncateHeadForPTLRetry.
+_MAX_SUMMARIZER_RETRIES = 1
+
 
 @dataclass
 class CompactThresholds:
@@ -40,6 +58,19 @@ class CompactThresholds:
 
 @dataclass
 class CompactResult:
+    """Result of an append-only compact pass.
+
+    - `messages`: the original input list with two new entries appended to
+      the tail: a summary message (`metadata.is_compact_summary=True`) and
+      a boundary marker (`metadata.is_compact_boundary=True`). When compact
+      is a no-op (not enough older messages), `messages` is the input list
+      unchanged and `summary` is empty.
+    - `summary`: the LLM-generated summary text.
+    - `tokens_before`: token estimate of the full input list.
+    - `tokens_after`: token estimate of the POST-BOUNDARY slice (what the
+      next turn will actually feed to the model), not the whole list.
+    """
+
     messages: list[dict]
     summary: str
     tokens_before: int
@@ -50,7 +81,13 @@ class CompactResult:
 
 
 def estimate_tokens(messages: list[dict]) -> int:
-    """Estimate token count using character-based approximation (len/4)."""
+    """Estimate token count using character-based approximation (len/4).
+
+    Matches CC's `roughTokenCountEstimation` (tokenEstimation.ts:203). The
+    same bytes-per-token constant is used for both ASCII and CJK content —
+    CJK under-counts by ~3x but in a conservative (late-compact) direction,
+    and the reactive path catches the true overflow anyway.
+    """
     if not messages:
         return 0
     total_chars = sum(len(json.dumps(msg, ensure_ascii=False)) for msg in messages)
@@ -63,15 +100,12 @@ def estimate_tokens(messages: list[dict]) -> int:
 def get_context_window(model: str) -> int:
     """Get context window for model: settings > built-in defaults > 128K fallback."""
     settings = get_settings()
-    # Priority 1: user config
     configured = settings.context_windows.get(model)
     if configured is not None:
         return configured
-    # Priority 2: built-in defaults
     builtin = _DEFAULT_CONTEXT_WINDOWS.get(model)
     if builtin is not None:
         return builtin
-    # Priority 3: fallback
     return DEFAULT_CONTEXT_WINDOW
 
 
@@ -110,7 +144,7 @@ def micro_compact(messages: list[dict], keep_recent: int = 3) -> list[dict]:
     return messages
 
 
-# ── Autocompact ─────────────────────────────────────────────
+# ── Auto / reactive compact ─────────────────────────────────
 
 _SUMMARY_PROMPT = """\
 Summarize the conversation so far. This summary will replace the older messages \
@@ -134,80 +168,70 @@ async def auto_compact(
     messages: list[dict],
     adapter: LLMAdapter,
     model: str,
+    *,
+    turn: int = 0,
 ) -> CompactResult:
-    """Compress older messages into a summary, keeping recent messages intact.
+    """Generate a summary of older messages, append summary + boundary to the tail.
 
-    Keeps ~30% of context_window worth of recent messages.
+    Keeps ~30% of context_window worth of messages after the boundary.
+    The pre-boundary messages remain in the returned list untouched.
     """
-    from src.llm.router import route
-
-    tokens_before = estimate_tokens(messages)
-    ctx_window = get_context_window(model)
-
-    # Keep recent messages that fit in 30% of context
-    recent_budget = int(ctx_window * 0.30)
-    split_idx = _find_split_point(messages, recent_budget)
-
-    if split_idx <= 1:
-        return CompactResult(
-            messages=messages,
-            summary="",
-            tokens_before=tokens_before,
-            tokens_after=tokens_before,
-        )
-
-    older = messages[:split_idx]
-    recent = messages[split_idx:]
-
-    # Generate summary using light-tier model
-    light = route("light")
-    summary_messages = [
-        {"role": "system", "content": _SUMMARY_PROMPT},
-        {"role": "user", "content": _format_for_summary(older)},
-    ]
-    response = await light.call(summary_messages, tools=[])
-    summary = response.content or ""
-
-    summary_msg = {
-        "role": "user",
-        "content": f"[CONVERSATION SUMMARY]\n{summary}",
-    }
-    new_messages = [summary_msg] + recent
-
-    await _save_summary(summary, estimate_tokens([summary_msg]))
-
-    tokens_after = estimate_tokens(new_messages)
-    logger.info(
-        "Autocompact: %d -> %d tokens (split at %d, kept %d recent)",
-        tokens_before, tokens_after, split_idx, len(recent),
+    return await _compact(
+        messages,
+        adapter,
+        model,
+        recent_budget_pct=0.30,
+        turn=turn,
+        label="Autocompact",
     )
-
-    return CompactResult(
-        messages=new_messages,
-        summary=summary,
-        tokens_before=tokens_before,
-        tokens_after=tokens_after,
-    )
-
-
-# ── Reactive compact ───────────────────────────────────────
 
 
 async def reactive_compact(
     messages: list[dict],
     adapter: LLMAdapter,
     model: str,
+    *,
+    turn: int = 0,
 ) -> CompactResult:
-    """Emergency compact: keeps only 20% of context_window worth of recent messages."""
-    from src.llm.router import route
+    """Emergency compact on context_length_exceeded.
 
+    More aggressive than auto_compact: keeps only ~20% of context_window
+    worth of messages after the boundary. Same append-only semantics.
+    """
+    return await _compact(
+        messages,
+        adapter,
+        model,
+        recent_budget_pct=0.20,
+        turn=turn,
+        label="Reactive compact",
+    )
+
+
+async def _compact(
+    messages: list[dict],
+    adapter: LLMAdapter,
+    model: str,
+    *,
+    recent_budget_pct: float,
+    turn: int,
+    label: str,
+) -> CompactResult:
     tokens_before = estimate_tokens(messages)
     ctx_window = get_context_window(model)
 
-    recent_budget = int(ctx_window * 0.20)
-    split_idx = _find_split_point(messages, recent_budget)
+    # Compact operates on the post-latest-boundary slice only. Earlier
+    # boundaries and their pre-boundary audit entries are invisible to the
+    # model and must not be re-summarized. This makes cascading compacts
+    # compose correctly: each new summary subsumes the previous one because
+    # the previous summary lives at the head of the current visible slice.
+    slice_start = _latest_boundary_end(messages)
+    visible = messages[slice_start:]
 
-    if split_idx <= 1:
+    recent_budget = int(ctx_window * recent_budget_pct)
+    split_idx_in_visible = _find_split_point(visible, recent_budget)
+
+    if split_idx_in_visible <= 1:
         return CompactResult(
             messages=messages,
             summary="",
@@ -215,29 +239,35 @@ async def reactive_compact(
             tokens_after=tokens_before,
         )
 
-    older = messages[:split_idx]
-    recent = messages[split_idx:]
+    older = visible[:split_idx_in_visible]
 
-    light = route("light")
-    summary_messages = [
-        {"role": "system", "content": _SUMMARY_PROMPT},
-        {"role": "user", "content": _format_for_summary(older)},
-    ]
-    response = await light.call(summary_messages, tools=[])
-    summary = response.content or ""
+    # Summarize with retry-on-overflow. Drops oldest half of the older blob
+    # on prompt-too-long errors, retries once, then re-raises.
+    summary = await _summarize_with_retry(older, adapter, model)
 
     summary_msg = {
         "role": "user",
-        "content": f"[CONVERSATION SUMMARY]\n{summary}",
+        "content": summary,
+        "metadata": {"is_compact_summary": True},
     }
-    new_messages = [summary_msg] + recent
+    boundary_msg = {
+        "role": "system",
+        "content": "",
+        "metadata": {"is_compact_boundary": True, "turn": turn},
+    }
 
-    await _save_summary(summary, estimate_tokens([summary_msg]))
+    new_messages = messages + [summary_msg, boundary_msg]
 
-    tokens_after = estimate_tokens(new_messages)
+    # tokens_after reflects what the NEXT turn will see: summary + post-boundary
+    # slice. Since we just appended the boundary at the very tail, the
+    # post-boundary slice is empty — the effective prompt size is the summary
+    # message alone plus whatever new user input the caller adds on top.
+    tokens_after = estimate_tokens([summary_msg])
+
     logger.info(
-        "Reactive compact: %d -> %d tokens (split at %d, kept %d recent)",
-        tokens_before, tokens_after, split_idx, len(recent),
+        "%s: %d -> %d tokens (visible slice split at %d, kept %d recent pre-append)",
+        label, tokens_before, tokens_after, split_idx_in_visible,
+        len(visible) - split_idx_in_visible,
     )
 
     return CompactResult(
@@ -248,7 +278,72 @@ async def reactive_compact(
     )
 
 
+async def _summarize_with_retry(
+    older: list[dict],
+    adapter: LLMAdapter,
+    model: str,
+) -> str:
+    """Call the summarizer with head-drop retry on prompt-too-long errors.
+
+    Mirrors CC's truncateHeadForPTLRetry: if the initial call fails with a
+    context/prompt-too-long error, drop the oldest 50% of `older` and retry
+    once. On second failure, re-raise — the caller (SessionRunner) will
+    count it against the circuit breaker.
+    """
+    attempt_blob = older
+    last_exc: Exception | None = None
+
+    for attempt in range(_MAX_SUMMARIZER_RETRIES + 1):
+        summary_messages = [
+            {"role": "system", "content": _SUMMARY_PROMPT},
+            {"role": "user", "content": _format_for_summary(attempt_blob)},
+        ]
+        try:
+            response = await adapter.call(summary_messages, tools=[])
+            return response.content or ""
+        except Exception as exc:
+            last_exc = exc
+            if not _is_context_length_error(exc):
+                raise
+            # Head-drop and retry once.
+            if attempt < _MAX_SUMMARIZER_RETRIES and len(attempt_blob) > 2:
+                drop_n = len(attempt_blob) // 2
+                attempt_blob = attempt_blob[drop_n:]
+                logger.warning(
+                    "Summarizer prompt-too-long; dropped oldest %d messages, retrying",
+                    drop_n,
+                )
+                continue
+            raise
+
+    # Unreachable — loop either returns or raises.
+    raise last_exc  # type: ignore[misc]
+
+
+def _is_context_length_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return (
+        "context_length_exceeded" in msg
+        or "prompt_too_long" in msg
+        or "context length" in msg
+        or "too long" in msg
+        or "exceed" in msg and "context" in msg
+    )
+
+
 # ── Helpers ─────────────────────────────────────────────────
+
+
+def _latest_boundary_end(messages: list[dict]) -> int:
+    """Return the index of the first message AFTER the latest compact boundary.
+
+    Returns 0 if no boundary is present (all messages are visible).
+    """
+    for i in range(len(messages) - 1, -1, -1):
+        meta = messages[i].get("metadata") or {}
+        if meta.get("is_compact_boundary"):
+            return i + 1
+    return 0
 
 
 def _find_split_point(messages: list[dict], recent_token_budget: int) -> int:
@@ -273,7 +368,7 @@ def _format_for_summary(messages: list[dict]) -> str:
         content = msg.get("content", "")
         if role == "tool":
             tc_id = msg.get("tool_call_id", "?")
-            lines.append(f"[tool result {tc_id}]: {content[:500]}")
+            lines.append(f"[tool result {tc_id}]: {str(content)[:500]}")
         elif role == "assistant" and msg.get("tool_calls"):
             calls = msg["tool_calls"]
             call_strs = ", ".join(tc.get("function", {}).get("name", "?") for tc in calls)
@@ -281,23 +376,5 @@ def _format_for_summary(messages: list[dict]) -> str:
             if content:
                 lines.append(f"[assistant]: {content}")
         else:
-            lines.append(f"[{role}]: {content[:2000]}")
+            lines.append(f"[{role}]: {str(content)[:2000]}")
     return "\n".join(lines)
-
-
-async def _save_summary(summary: str, token_count: int) -> None:
-    """Persist compact summary to PG. Best-effort, does not raise on failure."""
-    try:
-        from src.db import get_db
-        from src.models import CompactSummary
-
-        async with get_db() as session:
-            record = CompactSummary(
-                session_id="",
-                summary=summary,
-                token_count=token_count,
-            )
-            session.add(record)
-            await session.commit()
-    except Exception:
-        logger.warning("Failed to save compact summary", exc_info=True)
