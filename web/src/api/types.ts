@@ -85,6 +85,7 @@ export interface RunDetail {
   final_output: string;
   error: string | null;
   paused_at: string | null;
+  paused_output: string;
 }
 
 export interface AgentReference {

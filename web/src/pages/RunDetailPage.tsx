@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useParams, Link } from "react-router-dom";
+import { useLocation, useNavigate, useParams, Link } from "react-router-dom";
 import {
   BarChart,
   Bar,
@@ -608,6 +608,7 @@ export default function RunDetailPage() {
   const { id, runId } = useParams<{ id: string; runId: string }>();
   const projectId = Number(id);
   const location = useLocation();
+  const navigate = useNavigate();
   const state = (location.state ?? {}) as StreamState;
 
   const [sseEvents, setSseEvents] = useState<SseEvent[]>([]);
@@ -618,6 +619,8 @@ export default function RunDetailPage() {
   const [activeTab, setActiveTab] = useState<TabId>("result");
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const abortRef = useRef<AbortController | null>(null);
+  const liveRunIdRef = useRef<string | null>(null);
+  const [liveRunId, setLiveRunId] = useState<string | null>(null);
 
   // Telemetry data
   const [summary, setSummary] = useState<RunSummary | null>(null);
@@ -641,6 +644,20 @@ export default function RunDetailPage() {
         body: { input: state.inputText ? { text: state.inputText } : {} },
         onEvent: (ev) => {
           setSseEvents((prev) => [...prev, ev]);
+          // Capture the real run_id from the first "started" frame so that
+          // resume/cancel/edit actions can target the real run instead of
+          // the URL placeholder "pending".
+          if (ev.type === "started" && liveRunIdRef.current === null) {
+            try {
+              const parsed = JSON.parse(ev.data) as { run_id?: string };
+              if (parsed.run_id) {
+                liveRunIdRef.current = parsed.run_id;
+                setLiveRunId(parsed.run_id);
+              }
+            } catch {
+              // malformed started frame — ignore, fall back to 404 on action
+            }
+          }
           if (ev.type === "pipeline_end") setStatus("completed");
           if (ev.type === "pipeline_failed") setStatus("failed");
           if (ev.type === "pipeline_paused") setStatus("paused");
@@ -651,9 +668,19 @@ export default function RunDetailPage() {
         setError(err instanceof Error ? err : new Error(String(err)));
         setStatus("failed");
       })
-      .finally(() => setStreaming(false));
+      .finally(() => {
+        setStreaming(false);
+        // SSE has drained (pipeline reached paused/end/failed or errored).
+        // Replace the /runs/pending placeholder URL with the real run id so
+        // refresh/back-forward lands on the historical route and never
+        // re-triggers the pipeline.
+        const realId = liveRunIdRef.current;
+        if (realId) {
+          navigate(`/projects/${projectId}/runs/${realId}`, { replace: true });
+        }
+      });
     return () => ac.abort();
-  }, [liveStream, projectId, state.pipelineName, state.inputText]);
+  }, [liveStream, projectId, state.pipelineName, state.inputText, navigate]);
 
   // Load historical run detail
   const loadHistorical = useCallback(async () => {
@@ -809,12 +836,14 @@ export default function RunDetailPage() {
         </div>
       )}
 
-      {/* Resume UI for paused runs */}
-      {status === "paused" && (
+      {/* Resume UI for paused runs. We wait until `detail` has been loaded
+          via the historical path (post-navigate) so paused_at / paused_output
+          are populated — otherwise the panel would briefly render empty. */}
+      {status === "paused" && detail?.paused_at && (
         <ResumePanel
-          runId={runId!}
-          pausedAt={detail?.paused_at ?? null}
-          outputs={detail?.outputs ?? {}}
+          runId={liveRunId ?? runId!}
+          pausedAt={detail.paused_at}
+          pausedOutput={detail.paused_output ?? ""}
           onResumed={loadHistorical}
         />
       )}
@@ -1217,12 +1246,12 @@ export default function RunDetailPage() {
 function ResumePanel({
   runId,
   pausedAt,
-  outputs,
+  pausedOutput,
   onResumed,
 }: {
   runId: string;
   pausedAt: string | null;
-  outputs: Record<string, string>;
+  pausedOutput: string;
   onResumed: () => void;
 }) {
   const [feedback, setFeedback] = useState("");
@@ -1232,7 +1261,7 @@ function ResumePanel({
   const [expanded, setExpanded] = useState(true);
   const [mode, setMode] = useState<"review" | "edit">("review");
 
-  const outputContent = pausedAt ? outputs[pausedAt] ?? null : null;
+  const outputContent = pausedOutput || null;
 
   const handleAction = async (action: "approve" | "reject" | "edit") => {
     setResuming(true);

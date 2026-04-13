@@ -78,6 +78,7 @@ class RunDetail(BaseModel):
     final_output: str = ""
     error: str | None = None
     paused_at: str | None = None
+    paused_output: str = ""
 
 
 class AgentRunItem(BaseModel):
@@ -122,6 +123,7 @@ def _to_detail(run: WorkflowRun) -> RunDetail:
         final_output=meta.get("final_output", ""),
         error=meta.get("error"),
         paused_at=meta.get("paused_at"),
+        paused_output=meta.get("paused_output", ""),
     )
 
 

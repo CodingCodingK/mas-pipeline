@@ -34,6 +34,17 @@ def _first_error(left: str | None, right: str | None) -> str | None:
     return left if left is not None else right
 
 
+def _last_str(left: str, right: str) -> str:
+    """Last-write-wins reducer for scalar string fields.
+
+    Required whenever a field can be written by more than one writer in the
+    same LangGraph superstep (reject path writes review_feedback from the
+    interrupt Command, and downstream/parallel nodes clear it). Without an
+    explicit reducer LangGraph raises INVALID_CONCURRENT_GRAPH_UPDATE.
+    """
+    return right
+
+
 class PipelineState(TypedDict):
     user_input: str
     outputs: Annotated[dict[str, str], _merge_dicts]
@@ -41,7 +52,7 @@ class PipelineState(TypedDict):
     project_id: int
     permission_mode: str
     error: Annotated[str | None, _first_error]
-    review_feedback: str  # last-write-wins (no reducer needed for simple str)
+    review_feedback: Annotated[str, _last_str]
 
 
 # ── Node function factories ──────────────────────────────

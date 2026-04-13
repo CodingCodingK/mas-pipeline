@@ -349,6 +349,14 @@ async def execute_pipeline(
             paused_node = graph_state.next[0]
             # Strip _interrupt suffix to get the original node name
             paused_at = paused_node.replace("_interrupt", "")
+            paused_node_def = next(
+                (n for n in pipeline.nodes if n.name == paused_at), None
+            )
+            paused_output = (
+                final_state.get("outputs", {}).get(paused_node_def.output, "")
+                if paused_node_def
+                else ""
+            )
             await update_run_status(
                 run_id,
                 RunStatus.PAUSED,
@@ -358,6 +366,7 @@ async def execute_pipeline(
                     "failed_node": None,
                     "error": None,
                     "paused_at": paused_at,
+                    "paused_output": paused_output,
                 },
             )
 
@@ -541,6 +550,14 @@ async def resume_pipeline(
         if graph_state.next:
             paused_node = graph_state.next[0]
             paused_at = paused_node.replace("_interrupt", "")
+            paused_node_def = next(
+                (n for n in pipeline.nodes if n.name == paused_at), None
+            )
+            paused_output = (
+                final_state.get("outputs", {}).get(paused_node_def.output, "")
+                if paused_node_def
+                else ""
+            )
             await update_run_status(
                 run_id,
                 RunStatus.PAUSED,
@@ -550,6 +567,7 @@ async def resume_pipeline(
                     "failed_node": None,
                     "error": None,
                     "paused_at": paused_at,
+                    "paused_output": paused_output,
                 },
             )
 
