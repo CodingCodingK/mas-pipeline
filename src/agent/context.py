@@ -85,10 +85,19 @@ def _role_layer(role_body: str) -> str | None:
     return f"# Role\n{role_body}" if role_body else None
 
 
+_MEMORY_DRIFT_CAVEAT = (
+    "These memories were written in past sessions and may be stale. "
+    "Before relying on a remembered fact (file path, function name, flag, "
+    "decision, status), verify it against the current code or data. "
+    "If a memory conflicts with what you observe now, trust the current "
+    "observation — the memory is wrong and should be updated, not acted on."
+)
+
+
 def _memory_layer(memory_context: str | None = None) -> str | None:
     """Return relevant memories for this agent/project."""
     if memory_context:
-        return f"# Memory\n{memory_context}"
+        return f"# Memory\n{_MEMORY_DRIFT_CAVEAT}\n\n{memory_context}"
     return None
 
 

@@ -13,6 +13,7 @@ from src.api.auth import require_api_key
 from src.db import get_db
 from src.jobs import Job, get_registry
 from src.models import Document, DocumentChunk
+from src.rag.embedder import EmbeddingDimensionMismatchError, EmbeddingError
 from src.rag.ingest import ingest_document
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,19 @@ def _make_async_emit(job: Job):
     return _emit
 
 
+def _embedding_error_payload(exc: EmbeddingError) -> dict:
+    payload: dict = {
+        "error_class": type(exc).__name__,
+        "reason": exc.reason,
+        "api_base": exc.api_base,
+    }
+    if isinstance(exc, EmbeddingDimensionMismatchError):
+        payload["configured_dim"] = exc.configured_dim
+        payload["observed_dim"] = exc.observed_dim
+        payload["remediation"] = exc.remediation
+    return payload
+
+
 async def _run_ingest(project_id: int, file_id: int, job: Job) -> None:
     emit = _make_async_emit(job)
     try:
@@ -71,6 +85,16 @@ async def _run_ingest(project_id: int, file_id: int, job: Job) -> None:
             doc_id=file_id,
             progress_callback=emit,
         )
+    except EmbeddingError as exc:
+        logger.warning(
+            "ingest failed for project=%d file=%d: %s — %s",
+            project_id,
+            file_id,
+            type(exc).__name__,
+            exc.reason,
+        )
+        if job.status not in ("done", "failed"):
+            job.emit({"event": "failed", "error": _embedding_error_payload(exc)})
     except Exception as exc:
         logger.exception("ingest failed for project=%d file=%d", project_id, file_id)
         if job.status not in ("done", "failed"):

@@ -127,22 +127,45 @@ finally:
 
 print("\n=== 10. Embedder: mock ===")
 
-from src.rag.embedder import embed, _BATCH_SIZE
+import httpx
 
-mock_settings = MagicMock()
-mock_settings.embedding.provider = "openai"
-mock_settings.embedding.model = "text-embedding-3-small"
-mock_settings.providers = {"openai": MagicMock(api_base="https://api.openai.com/v1", api_key="test")}
+from src.rag.embedder import (
+    _BATCH_SIZE,
+    EmbeddingAPIError,
+    EmbeddingAuthError,
+    EmbeddingDimensionMismatchError,
+    EmbeddingUnreachableError,
+    _reset_dim_cache,
+    embed,
+)
+
+_TEST_DIM = 768
 
 
-async def mock_embed_call():
-    """Test embed with mocked HTTP."""
+def _make_settings(api_base: str = "http://localhost:11434/v1", api_key: str = "") -> MagicMock:
+    s = MagicMock()
+    s.embedding.provider = "ollama"
+    s.embedding.model = "nomic-embed-text"
+    s.embedding.dimensions = _TEST_DIM
+    s.embedding.api_base = api_base
+    s.embedding.api_key = api_key
+    return s
+
+
+async def _noop_dim_check(configured_dim, api_base):
+    return None
+
+
+async def mock_embed_happy_path():
+    """Mock 200 response with correct-length vectors."""
+    _reset_dim_cache()
+
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.json.return_value = {
         "data": [
-            {"index": 0, "embedding": [0.1] * 1536},
-            {"index": 1, "embedding": [0.2] * 1536},
+            {"index": 0, "embedding": [0.1] * _TEST_DIM},
+            {"index": 1, "embedding": [0.2] * _TEST_DIM},
         ]
     }
 
@@ -151,20 +174,163 @@ async def mock_embed_call():
     mock_client.__aexit__ = AsyncMock(return_value=None)
     mock_client.post = AsyncMock(return_value=mock_response)
 
-    with patch("src.rag.embedder.get_settings", return_value=mock_settings), \
-         patch("src.rag.embedder.httpx.AsyncClient", return_value=mock_client):
+    with (
+        patch("src.rag.embedder.get_settings", return_value=_make_settings()),
+        patch("src.rag.embedder._ensure_db_dim_matches", new=_noop_dim_check),
+        patch("src.rag.embedder.httpx.AsyncClient", return_value=mock_client),
+    ):
         vectors = await embed(["hello", "world"])
         check("embed returns 2 vectors", len(vectors) == 2)
-        check("vector dim 1536", len(vectors[0]) == 1536)
+        check(f"vector dim {_TEST_DIM}", len(vectors[0]) == _TEST_DIM)
         check("vector values", vectors[0][0] == 0.1)
 
-    # Empty input
-    with patch("src.rag.embedder.get_settings", return_value=mock_settings):
+    with patch("src.rag.embedder.get_settings", return_value=_make_settings()):
         vectors = await embed([])
         check("empty input → empty output", vectors == [])
 
 
-asyncio.run(mock_embed_call())
+async def mock_embed_unreachable():
+    _reset_dim_cache()
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
+
+    raised = None
+    with (
+        patch("src.rag.embedder.get_settings", return_value=_make_settings()),
+        patch("src.rag.embedder._ensure_db_dim_matches", new=_noop_dim_check),
+        patch("src.rag.embedder.httpx.AsyncClient", return_value=mock_client),
+    ):
+        try:
+            await embed(["hi"])
+        except EmbeddingUnreachableError as exc:
+            raised = exc
+
+    check("connect error → EmbeddingUnreachableError", isinstance(raised, EmbeddingUnreachableError))
+    check("api_base propagated", raised and "11434" in raised.api_base)
+
+
+async def mock_embed_auth_failure():
+    _reset_dim_cache()
+    mock_response = MagicMock()
+    mock_response.status_code = 401
+    mock_response.text = "unauthorized"
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=mock_response)
+
+    raised = None
+    with (
+        patch("src.rag.embedder.get_settings", return_value=_make_settings()),
+        patch("src.rag.embedder._ensure_db_dim_matches", new=_noop_dim_check),
+        patch("src.rag.embedder.httpx.AsyncClient", return_value=mock_client),
+    ):
+        try:
+            await embed(["hi"])
+        except EmbeddingAuthError as exc:
+            raised = exc
+
+    check("401 → EmbeddingAuthError", isinstance(raised, EmbeddingAuthError))
+
+
+async def mock_embed_api_error():
+    _reset_dim_cache()
+    mock_response = MagicMock()
+    mock_response.status_code = 500
+    mock_response.text = "oops"
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=mock_response)
+
+    raised = None
+    with (
+        patch("src.rag.embedder.get_settings", return_value=_make_settings()),
+        patch("src.rag.embedder._ensure_db_dim_matches", new=_noop_dim_check),
+        patch("src.rag.embedder.httpx.AsyncClient", return_value=mock_client),
+    ):
+        try:
+            await embed(["hi"])
+        except EmbeddingAPIError as exc:
+            raised = exc
+
+    check("500 → EmbeddingAPIError", isinstance(raised, EmbeddingAPIError))
+    check("status_code carried", raised and raised.status_code == 500)
+
+
+async def mock_embed_wrong_dim_from_endpoint():
+    _reset_dim_cache()
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "data": [{"index": 0, "embedding": [0.1] * 1024}],  # wrong dim
+    }
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=mock_response)
+
+    raised = None
+    with (
+        patch("src.rag.embedder.get_settings", return_value=_make_settings()),
+        patch("src.rag.embedder._ensure_db_dim_matches", new=_noop_dim_check),
+        patch("src.rag.embedder.httpx.AsyncClient", return_value=mock_client),
+    ):
+        try:
+            await embed(["hi"])
+        except EmbeddingDimensionMismatchError as exc:
+            raised = exc
+
+    check("wrong-dim response → EmbeddingDimensionMismatchError", isinstance(raised, EmbeddingDimensionMismatchError))
+    check("observed_dim carried", raised and raised.observed_dim == 1024)
+    check("remediation points at script", raised and "migrate_embedding_dim.py" in raised.remediation)
+
+
+async def mock_embed_no_auth_header_when_key_empty():
+    """When api_key is empty (ollama case), Authorization header must be omitted."""
+    _reset_dim_cache()
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "data": [{"index": 0, "embedding": [0.1] * _TEST_DIM}],
+    }
+
+    captured_headers = {}
+
+    class _CaptureClient:
+        def __init__(self, *, base_url, headers, timeout):
+            captured_headers.update(headers)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return None
+
+        async def post(self, *args, **kwargs):
+            return mock_response
+
+    with (
+        patch("src.rag.embedder.get_settings", return_value=_make_settings(api_key="")),
+        patch("src.rag.embedder._ensure_db_dim_matches", new=_noop_dim_check),
+        patch("src.rag.embedder.httpx.AsyncClient", _CaptureClient),
+    ):
+        await embed(["hi"])
+
+    check("no Authorization header for empty api_key", "Authorization" not in captured_headers)
+
+
+asyncio.run(mock_embed_happy_path())
+asyncio.run(mock_embed_unreachable())
+asyncio.run(mock_embed_auth_failure())
+asyncio.run(mock_embed_api_error())
+asyncio.run(mock_embed_wrong_dim_from_endpoint())
+asyncio.run(mock_embed_no_auth_header_when_key_empty())
 
 check("batch size is 100", _BATCH_SIZE == 100)
 
@@ -212,6 +378,42 @@ async def test_search_docs():
         check("no results message", "No relevant" in result.output)
         check("no results still success", result.success is True)
 
+    # Embedding unreachable → silent degradation
+    from src.rag.embedder import (
+        EmbeddingUnreachableError,
+        EmbeddingDimensionMismatchError,
+    )
+    import src.tools.builtins.search_docs as search_docs_mod
+
+    search_docs_mod._logged_error_classes.clear()
+
+    with patch(
+        "src.rag.retriever.retrieve",
+        new_callable=AsyncMock,
+        side_effect=EmbeddingUnreachableError(
+            reason="connection refused", api_base="http://localhost:11434/v1"
+        ),
+    ):
+        result = await tool.call({"query": "anything"}, ctx)
+        check("unreachable → success=True", result.success is True)
+        check("unreachable → RAG-unavailable output", "RAG unavailable" in result.output)
+
+    # Dimension mismatch → still success=True (but ERROR-level log path)
+    search_docs_mod._logged_error_classes.clear()
+    with patch(
+        "src.rag.retriever.retrieve",
+        new_callable=AsyncMock,
+        side_effect=EmbeddingDimensionMismatchError(
+            reason="dim mismatch",
+            api_base="http://localhost:11434/v1",
+            configured_dim=768,
+            observed_dim=1536,
+        ),
+    ):
+        result = await tool.call({"query": "anything"}, ctx)
+        check("dim mismatch → success=True", result.success is True)
+        check("dim mismatch → RAG-unavailable output", "RAG unavailable" in result.output)
+
 
 asyncio.run(test_search_docs())
 
@@ -232,6 +434,175 @@ from src.rag.retriever import RetrievalResult
 r = RetrievalResult(content="test", metadata={"k": "v"}, score=0.95, doc_id=1)
 check("RetrievalResult fields", r.content == "test" and r.score == 0.95 and r.doc_id == 1)
 check("RetrievalResult metadata", r.metadata == {"k": "v"})
+
+# ── 13b. File upload must not touch embedder ──────────
+
+print("\n=== 13b. File upload decoupled from embedder ===")
+
+import inspect
+
+from src.files import manager as files_manager
+
+upload_source = inspect.getsource(files_manager)
+check(
+    "files.manager does not import embedder",
+    "rag.embedder" not in upload_source and "from src.rag" not in upload_source,
+)
+check(
+    "files.manager does not call embed()",
+    "embed(" not in upload_source,
+)
+
+
+# ── 13c. Ingest EmbeddingError builds structured Job payload ───
+
+print("\n=== 13c. Ingest EmbeddingError → structured Job payload ===")
+
+from src.api.knowledge import _embedding_error_payload, _run_ingest
+from src.jobs import Job
+
+
+async def test_ingest_embedding_error_payload():
+    from src.rag.embedder import (
+        EmbeddingDimensionMismatchError,
+        EmbeddingUnreachableError,
+    )
+
+    # Plain unreachable → payload carries error_class / reason / api_base.
+    job = Job(kind="ingest")
+    async def raise_unreachable(project_id, doc_id, progress_callback=None):
+        raise EmbeddingUnreachableError(
+            reason="cannot reach http://localhost:11434/v1: refused",
+            api_base="http://localhost:11434/v1",
+        )
+
+    with patch("src.api.knowledge.ingest_document", side_effect=raise_unreachable):
+        await _run_ingest(project_id=1, file_id=1, job=job)
+
+    check("job failed after EmbeddingError", job.status == "failed")
+    check("job.error is dict", isinstance(job.error, dict))
+    check(
+        "payload error_class",
+        isinstance(job.error, dict) and job.error.get("error_class") == "EmbeddingUnreachableError",
+    )
+    check(
+        "payload api_base",
+        isinstance(job.error, dict) and "11434" in job.error.get("api_base", ""),
+    )
+    check(
+        "payload reason populated",
+        isinstance(job.error, dict) and job.error.get("reason", "").startswith("cannot reach"),
+    )
+
+    # Dimension mismatch → payload additionally carries configured / observed / remediation
+    job2 = Job(kind="ingest")
+    async def raise_dim(project_id, doc_id, progress_callback=None):
+        raise EmbeddingDimensionMismatchError(
+            reason="db column is Vector(1536) but settings.embedding.dimensions=768",
+            api_base="http://localhost:11434/v1",
+            configured_dim=768,
+            observed_dim=1536,
+        )
+
+    with patch("src.api.knowledge.ingest_document", side_effect=raise_dim):
+        await _run_ingest(project_id=1, file_id=2, job=job2)
+
+    check("dim-mismatch job failed", job2.status == "failed")
+    err = job2.error if isinstance(job2.error, dict) else {}
+    check("payload error_class dim", err.get("error_class") == "EmbeddingDimensionMismatchError")
+    check("payload configured_dim", err.get("configured_dim") == 768)
+    check("payload observed_dim", err.get("observed_dim") == 1536)
+    check(
+        "payload remediation",
+        "migrate_embedding_dim.py" in err.get("remediation", ""),
+    )
+
+    # Standalone helper produces the same shape
+    payload = _embedding_error_payload(
+        EmbeddingUnreachableError(reason="x", api_base="y")
+    )
+    check("helper error_class", payload["error_class"] == "EmbeddingUnreachableError")
+    check("helper api_base", payload["api_base"] == "y")
+
+
+asyncio.run(test_ingest_embedding_error_payload())
+
+
+# ── 13d. Config loader: ${VAR:default} substitution for embedding ───
+
+print("\n=== 13d. Config loader substitutes embedding env vars ===")
+
+import os as _os
+
+from src.project.config import load_settings
+
+
+def test_config_env_substitution(tmp_path):
+    import tempfile
+
+    yaml_body = """
+embedding:
+  provider: ollama
+  model: nomic-embed-text
+  dimensions: 768
+  api_base: ${TEST_EMBED_API_BASE:http://localhost:11434/v1}
+  api_key: ${TEST_EMBED_API_KEY:}
+"""
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".yaml", delete=False, encoding="utf-8"
+    ) as f:
+        f.write(yaml_body)
+        tmp = Path(f.name)
+
+    try:
+        # Default path (no env vars set)
+        _os.environ.pop("TEST_EMBED_API_BASE", None)
+        _os.environ.pop("TEST_EMBED_API_KEY", None)
+        s = load_settings(global_path=tmp, local_path=Path("/nonexistent"))
+        check(
+            "default api_base resolves to fallback",
+            s.embedding.api_base == "http://localhost:11434/v1",
+        )
+        check("default api_key resolves to empty", s.embedding.api_key == "")
+
+        # Override via env
+        _os.environ["TEST_EMBED_API_BASE"] = "https://api.example.com/v1"
+        _os.environ["TEST_EMBED_API_KEY"] = "sk-test-xyz"
+        s2 = load_settings(global_path=tmp, local_path=Path("/nonexistent"))
+        check(
+            "override api_base picks up env",
+            s2.embedding.api_base == "https://api.example.com/v1",
+        )
+        check("override api_key picks up env", s2.embedding.api_key == "sk-test-xyz")
+    finally:
+        _os.environ.pop("TEST_EMBED_API_BASE", None)
+        _os.environ.pop("TEST_EMBED_API_KEY", None)
+        tmp.unlink(missing_ok=True)
+
+
+test_config_env_substitution(None)
+
+
+# ── 13e. Embedder module import is side-effect-free ───
+
+print("\n=== 13e. Embedder import does not touch network/DB ===")
+
+# Import should not open any HTTP client, contact DB, or read settings that
+# would trigger network activity. This is the contract that lets the API
+# server start even when the embedding endpoint is unreachable.
+import importlib
+
+import src.rag.embedder as _embedder_mod
+
+# Re-import cleanly and verify no exceptions from module top-level code
+importlib.reload(_embedder_mod)
+check("embedder reload clean", True)
+check("EmbeddingError exposed", hasattr(_embedder_mod, "EmbeddingError"))
+check(
+    "embed is a coroutine function",
+    asyncio.iscoroutinefunction(_embedder_mod.embed),
+)
+
 
 # ── 14. DocumentChunk ORM ──────────────────────────────
 

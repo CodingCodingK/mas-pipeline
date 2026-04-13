@@ -262,6 +262,9 @@ check("No memory: no Memory section", "# Memory" not in prompt_no_mem)
 prompt_with_mem = build_system_prompt("You are a helper.", memory_context="User prefers dark mode.")
 check("With memory: has Memory section", "# Memory" in prompt_with_mem)
 check("With memory: content present", "dark mode" in prompt_with_mem)
+check("With memory: drift caveat present", "may be stale" in prompt_with_mem)
+check("With memory: caveat precedes content", prompt_with_mem.index("may be stale") < prompt_with_mem.index("dark mode"))
+check("No memory: no caveat", "may be stale" not in prompt_no_mem)
 
 
 # ── 6. Global tool pool ─────────────────────────────────────
@@ -273,7 +276,7 @@ from src.tools.builtins import get_all_tools
 all_tools = get_all_tools()
 check("memory_read in pool", "memory_read" in all_tools)
 check("memory_write in pool", "memory_write" in all_tools)
-check("Total tools = 6", len(all_tools) == 6, f"got {len(all_tools)}: {list(all_tools.keys())}")
+check("Total tools = 7", len(all_tools) == 7, f"got {len(all_tools)}: {list(all_tools.keys())}")
 
 
 # ── Summary ──────────────────────────────────────────────────

@@ -32,6 +32,26 @@ services:
       timeout: 3s
       retries: 5
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: mas-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: /bin/sh
+    # Start the daemon, wait for readiness, pull the embedding model on first
+    # run (cached in ollama_data afterwards), then wait on the daemon. The
+    # healthcheck only flips healthy once the model is actually present.
+    command:
+      - -c
+      - "ollama serve & sleep 5 && ollama pull nomic-embed-text && wait"
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list | grep -q nomic-embed-text"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
   api:
     build: .
     container_name: mas-api
@@ -41,6 +61,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_healthy
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -49,6 +71,10 @@ services:
       POSTGRES_DB: mas_pipeline
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # Point embedding at the bundled ollama service by default. Override by
+      # setting OPENAI_EMBEDDING_API_BASE before `docker compose up` to use a
+      # different endpoint (host ollama, external API, etc.).
+      OPENAI_EMBEDDING_API_BASE: ${OPENAI_EMBEDDING_API_BASE:-http://ollama:11434/v1}
     env_file:
       - .env
     volumes:
@@ -77,3 +103,4 @@ services:
 volumes:
   pg_data:
   redis_data:
+  ollama_data:

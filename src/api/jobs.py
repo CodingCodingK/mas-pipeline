@@ -36,7 +36,7 @@ def _terminal_replay_event(job: Job) -> dict:
     if job.status == "done":
         return {"event": "done"}
     if job.status == "failed":
-        return {"event": "failed", "error": job.error or ""}
+        return {"event": "failed", "error": job.error if job.error is not None else ""}
     return {"event": job.status}
 
 

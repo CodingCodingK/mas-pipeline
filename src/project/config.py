@@ -70,9 +70,11 @@ class ModelsConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    model: str = "text-embedding-3-small"
-    provider: str = "openai"
-    dimensions: int = 1536
+    model: str = "nomic-embed-text"
+    provider: str = "ollama"
+    dimensions: int = 768
+    api_base: str = "http://localhost:11434/v1"
+    api_key: str = ""
 
 
 class DatabaseConfig(BaseModel):

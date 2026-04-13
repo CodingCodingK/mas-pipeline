@@ -10,9 +10,22 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from pgvector.sqlalchemy import Vector
 
+from src.project.config import get_settings
+
 
 class Base(DeclarativeBase):
     pass
+
+
+def _embedding_dim() -> int:
+    """Read configured embedding dimension at import time.
+
+    Fresh installs build the `document_chunks.embedding` column at this
+    dimension. Existing databases whose column disagrees with this value
+    raise `EmbeddingDimensionMismatchError` on first embed() — run
+    `scripts/migrate_embedding_dim.py --yes` to reshape.
+    """
+    return get_settings().embedding.dimensions
 
 
 class User(Base):
@@ -127,7 +140,7 @@ class DocumentChunk(Base):
     doc_id: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding = mapped_column(Vector(1536))
+    embedding = mapped_column(Vector(_embedding_dim()))
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
 
 

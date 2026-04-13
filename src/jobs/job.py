@@ -39,7 +39,7 @@ class Job:
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     kind: str = "generic"
     status: JobStatus = "pending"
-    error: str | None = None
+    error: str | dict | None = None
     started_at: datetime = field(default_factory=_now)
     finished_at: datetime | None = None
     last_event: dict | None = None

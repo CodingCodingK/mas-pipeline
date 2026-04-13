@@ -122,7 +122,7 @@ CREATE TABLE document_chunks (
     doc_id      INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     chunk_index INTEGER NOT NULL,
     content     TEXT NOT NULL,
-    embedding   vector(1536),
+    embedding   vector(768),
     metadata    JSONB DEFAULT '{}'
 );
 CREATE INDEX idx_chunks_doc ON document_chunks(doc_id);

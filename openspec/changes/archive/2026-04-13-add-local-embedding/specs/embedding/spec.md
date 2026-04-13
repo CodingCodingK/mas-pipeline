@@ -1,40 +1,4 @@
-## Purpose
-Defines the `embed` function used by the RAG ingest pipeline to produce vector representations for text chunks.
-## Requirements
-### Requirement: embed produces vectors for text inputs
-`embed(texts, *, progress_callback=None)` SHALL call the configured embedding API and return a list of float vectors, one per input text. If `progress_callback` is provided, it SHALL be awaited after each batch (every 100 texts) with `{"event": "embedding_progress", "done": <int>, "total": <int>}`.
-
-#### Scenario: Single text embedding
-- **WHEN** embed is called with `["Hello world"]`
-- **THEN** it SHALL return a list containing one vector of length matching `settings.embedding.dimensions`
-
-#### Scenario: Batch embedding
-- **WHEN** embed is called with 150 texts
-- **THEN** it SHALL split into batches of at most 100, call the API for each batch, and return 150 vectors concatenated in order
-
-#### Scenario: Empty input
-- **WHEN** embed is called with an empty list
-- **THEN** it SHALL return an empty list without making any API call
-
-#### Scenario: Progress callback receives per-batch ticks
-- **WHEN** embed is called with 250 texts and a `progress_callback`
-- **THEN** the callback SHALL be awaited 3 times with `done` values `100`, `200`, `250` and `total=250`
-
-#### Scenario: No callback is backward compatible
-- **WHEN** embed is called without a `progress_callback` argument
-- **THEN** it SHALL behave identically to the prior version (no callbacks invoked)
-
-### Requirement: Embedding uses configured model and provider
-
-embed SHALL read `settings.embedding.model`, `settings.embedding.api_base`, `settings.embedding.api_key`, and `settings.embedding.dimensions` to configure API calls. The `settings.embedding.provider` field is retained for telemetry only and SHALL NOT be used to look up any other config block.
-
-#### Scenario: OpenAI-compatible embedding endpoint
-- **WHEN** `settings.embedding.api_base` is any OpenAI-compatible base URL
-- **THEN** embed SHALL POST to `{api_base}/embeddings` with `Authorization: Bearer {api_key}` (omitted if `api_key` is empty) and SHALL parse the response as an OpenAI-format embeddings response
-
-#### Scenario: Dimensions match configuration
-- **WHEN** embed returns vectors
-- **THEN** each vector length SHALL equal `settings.embedding.dimensions` or embed SHALL raise `EmbeddingDimensionMismatchError`
+## ADDED Requirements
 
 ### Requirement: Embedding config is independent of chat provider config
 
@@ -110,3 +74,16 @@ The system SHALL provide `scripts/migrate_embedding_dim.py` that reads `settings
 - **WHEN** a user runs `python scripts/migrate_embedding_dim.py --yes` with `settings.embedding.dimensions=768`
 - **THEN** the script SHALL drop and recreate `document_chunks.embedding` as `Vector(768)`, print a re-ingest reminder, and exit 0
 
+## MODIFIED Requirements
+
+### Requirement: Embedding uses configured model and provider
+
+embed SHALL read `settings.embedding.model`, `settings.embedding.api_base`, `settings.embedding.api_key`, and `settings.embedding.dimensions` to configure API calls. The `settings.embedding.provider` field is retained for telemetry only and SHALL NOT be used to look up any other config block.
+
+#### Scenario: OpenAI-compatible embedding endpoint
+- **WHEN** `settings.embedding.api_base` is any OpenAI-compatible base URL
+- **THEN** embed SHALL POST to `{api_base}/embeddings` with `Authorization: Bearer {api_key}` (omitted if `api_key` is empty) and SHALL parse the response as an OpenAI-format embeddings response
+
+#### Scenario: Dimensions match configuration
+- **WHEN** embed returns vectors
+- **THEN** each vector length SHALL equal `settings.embedding.dimensions` or embed SHALL raise `EmbeddingDimensionMismatchError`

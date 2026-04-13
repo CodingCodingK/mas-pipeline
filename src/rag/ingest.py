@@ -11,7 +11,7 @@ from src.db import get_db
 from src.files.manager import UPLOADS_DIR
 from src.models import Document, DocumentChunk
 from src.rag.chunker import chunk_text
-from src.rag.embedder import embed
+from src.rag.embedder import EmbeddingError, embed
 from src.rag.parser import parse_document
 
 logger = logging.getLogger(__name__)
@@ -121,6 +121,11 @@ async def ingest_document(
         logger.info("Ingested document %d: %d chunks", doc_id, len(chunks))
         await _emit(progress_callback, {"event": "done", "chunks": len(chunks)})
         return len(chunks)
+    except EmbeddingError:
+        # Let the caller (e.g. REST knowledge handler) build a structured
+        # failure payload from the typed exception. Re-raise without emitting
+        # a generic plain-string failed event so the caller's emit wins.
+        raise
     except Exception as exc:
         await _emit(progress_callback, {"event": "failed", "error": str(exc)})
         raise

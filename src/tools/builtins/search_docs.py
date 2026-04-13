@@ -2,7 +2,32 @@
 
 from __future__ import annotations
 
+import logging
+
+from src.rag.embedder import EmbeddingDimensionMismatchError, EmbeddingError
 from src.tools.base import Tool, ToolContext, ToolResult
+
+logger = logging.getLogger(__name__)
+
+_RAG_UNAVAILABLE_OUTPUT = "RAG unavailable: no results"
+
+_logged_error_classes: set[str] = set()
+
+
+def _log_once(exc: EmbeddingError) -> None:
+    """Log each error class at most once per process to avoid spam."""
+    cls = type(exc).__name__
+    if cls in _logged_error_classes:
+        return
+    _logged_error_classes.add(cls)
+    if isinstance(exc, EmbeddingDimensionMismatchError):
+        logger.error(
+            "search_docs: embedding dim mismatch — %s. Run: %s",
+            exc.reason,
+            exc.remediation,
+        )
+    else:
+        logger.warning("search_docs: %s — %s", cls, exc.reason)
 
 
 class SearchDocsTool(Tool):
@@ -43,11 +68,15 @@ class SearchDocsTool(Tool):
         if not context.project_id:
             return ToolResult(output="Error: no project context available", success=False)
 
-        results = await retrieve(
-            project_id=context.project_id,
-            query=query,
-            top_k=top_k,
-        )
+        try:
+            results = await retrieve(
+                project_id=context.project_id,
+                query=query,
+                top_k=top_k,
+            )
+        except EmbeddingError as exc:
+            _log_once(exc)
+            return ToolResult(output=_RAG_UNAVAILABLE_OUTPUT, success=True)
 
         if not results:
             return ToolResult(output="No relevant documents found.", success=True)
