@@ -1,0 +1,44 @@
+services:
+  api:
+    environment:
+      OPENAI_API_BASE: http://host.docker.internal:9999/v1
+      OPENAI_API_KEY: sk-smoke-fake-key
+      # Route embedding through the same fake LLM (its /v1/embeddings stub
+      # returns 768-dim deterministic vectors). Overrides the bundled-ollama
+      # default from docker-compose.yaml so the smoke test does not depend on
+      # the ollama service being healthy or even started.
+      OPENAI_EMBEDDING_API_BASE: http://host.docker.internal:9999/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Smoke does not need the bundled ollama service; embedding is routed
+    # through the fake LLM via OPENAI_EMBEDDING_API_BASE above. Drop the
+    # health-gated dependency so the api starts as soon as pg+redis are up.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Shadow the developer's real settings.local.yaml with a smoke-specific
+      # file so any local LLM proxy config can't leak into the smoke run.
+      # This bind mount layers on top of the base ./config:/app/config mount.
+      - ./scripts/smoke_settings_shadow.yaml:/app/config/settings.local.yaml:ro
+
+  # Override the heavy ollama/ollama:latest image with a tiny alpine that
+  # idles forever and reports healthy immediately. Smoke doesn't need a
+  # real embedding endpoint (the fake LLM at :9999/v1/embeddings handles
+  # that), and pulling ~700 MB of ollama image on every clean smoke run
+  # would dominate test wall time. The container has to stay up + healthy
+  # because compose merges depends_on by key (it does not replace), so the
+  # api service inherits `ollama: condition: service_healthy` from the
+  # base file and would block on it forever otherwise.
+  ollama:
+    image: alpine:3.19
+    entrypoint: ["sleep", "infinity"]
+    command: []
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 5s
+      timeout: 2s
+      retries: 1
+      start_period: 1s

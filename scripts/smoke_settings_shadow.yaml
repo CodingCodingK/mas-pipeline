@@ -1,0 +1,18 @@
+# Shadow settings.local.yaml used only by docker-compose.smoke.yaml.
+# Bind-mounted over /app/config/settings.local.yaml inside the api container
+# during smoke tests so the developer's real settings.local.yaml (which may
+# point at a real LLM proxy) is invisible to the smoke run.
+
+providers:
+  openai:
+    api_key: sk-smoke-fake
+    api_base: http://host.docker.internal:9999/v1
+
+# Route embedding through the same fake LLM. The fake's /v1/embeddings stub
+# returns 768-dim deterministic vectors. Belt-and-braces with the
+# OPENAI_EMBEDDING_API_BASE env var in docker-compose.smoke.yaml.
+embedding:
+  api_base: http://host.docker.internal:9999/v1
+  api_key: sk-smoke-fake
+  model: nomic-embed-text
+  dimensions: 768

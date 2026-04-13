@@ -31,6 +31,10 @@ Thumbs.db
 uploads/*
 !uploads/.gitkeep
 
+# Runtime project storage (per-project agent/pipeline overrides + images)
+projects/*
+!projects/.gitkeep
+
 # Docker
 docker-compose.override.yml
 
