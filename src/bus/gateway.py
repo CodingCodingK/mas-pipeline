@@ -49,6 +49,11 @@ class Gateway:
         self._running = False
         self._active_tasks: set[asyncio.Task] = set()
 
+        # Wire the MessageBus into the clawbot reporter registry so
+        # confirm_pending_run can launch ChatProgressReporter instances.
+        from src.clawbot.reporter_registry import install_bus
+        install_bus(bus)
+
     async def run(self) -> None:
         """Main loop: consume inbound, dispatch per message."""
         self._running = True
@@ -72,6 +77,9 @@ class Gateway:
         self._running = False
         if self._active_tasks:
             await asyncio.gather(*self._active_tasks, return_exceptions=True)
+        # Cancel any clawbot progress reporters still streaming pipeline events.
+        from src.clawbot.reporter_registry import clear_registry_for_shutdown
+        clear_registry_for_shutdown()
 
     async def _dispatch(self, msg: InboundMessage) -> None:
         await self._process_message(msg)
@@ -84,13 +92,16 @@ class Gateway:
                 await self._handle_resume(msg)
                 return
 
-            # 1. Resolve session
+            # 1. Resolve session — clawbot is the top-level group chat agent
+            # in this process, so every new bus-originated session gets
+            # mode="bus_chat". Existing sessions keep their stored mode.
             session = await resolve_session(
                 session_key=msg.session_key,
                 channel=msg.channel,
                 chat_id=msg.chat_id,
                 project_id=self._project_id,
                 ttl_hours=self._session_ttl_hours,
+                mode="bus_chat",
             )
 
             # 2. Append the user message so the runner will pick it up on wakeup.
