@@ -1,4 +1,4 @@
-"""Workflow run management: CRUD + state machine + Redis sync."""
+"""Workflow run management: CRUD + state machine."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from enum import Enum
 
 from sqlalchemy import func, select
 
-from src.db import get_db, get_redis
+from src.db import get_db
 from src.models import WorkflowRun
 
 logger = logging.getLogger(__name__)
@@ -135,23 +135,6 @@ def _validate_transition(current: str, target: RunStatus) -> None:
         )
 
 
-# ── Redis sync ─────────────────────────────────────────────
-
-
-async def _sync_to_redis(run: WorkflowRun) -> None:
-    """Write run state to Redis Hash for fast lookups."""
-    redis = get_redis()
-    key = f"workflow_run:{run.run_id}"
-    fields: dict[str, str] = {
-        "project_id": str(run.project_id),
-        "pipeline": run.pipeline or "",
-        "status": run.status,
-        "started_at": str(run.started_at) if run.started_at else "",
-        "finished_at": str(run.finished_at) if run.finished_at else "",
-    }
-    await redis.hset(key, mapping=fields)
-
-
 # ── CRUD ───────────────────────────────────────────────────
 
 
@@ -163,7 +146,6 @@ async def create_run(
     """Create a new workflow run.
 
     Generates a unique run_id (UUID-based), sets status='pending' and started_at=now().
-    Syncs initial state to Redis.
     """
     run = WorkflowRun(
         project_id=project_id,
@@ -179,7 +161,6 @@ async def create_run(
         # Refresh to get server-generated started_at
         await session.refresh(run)
 
-    await _sync_to_redis(run)
     return run
 
 
@@ -233,7 +214,6 @@ async def update_run_status(
             existing = run.metadata_ or {}
             run.metadata_ = {**existing, **result_payload}
 
-    await _sync_to_redis(run)
     return run
 
 
@@ -275,5 +255,4 @@ async def finish_run(
         await session.flush()
         await session.refresh(run)
 
-    await _sync_to_redis(run)
     return run

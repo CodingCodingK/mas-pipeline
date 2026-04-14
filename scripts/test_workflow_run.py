@@ -2,7 +2,7 @@
 
 Tests:
 1. RunStatus enum + state machine transitions
-2. create_run with extended parameters + Redis sync
+2. create_run with extended parameters
 3. get_run / list_runs
 4. update_run_status with state machine validation
 5. finish_run with terminal state + finished_at
@@ -85,7 +85,6 @@ async def test_state_machine():
 
 async def test_create_run():
     print("\n=== 2. create_run ===", flush=True)
-    from src.db import get_redis
     from src.engine.run import create_run
 
     # Basic create
@@ -103,14 +102,6 @@ async def test_create_run():
     run2 = await create_run(project_id=1, session_id=None, pipeline="blog_generation")
     check("pipeline set", run2.pipeline == "blog_generation")
     check("unique run_id", run.run_id != run2.run_id)
-
-    # Redis sync
-    redis = get_redis()
-    data = await redis.hgetall(f"workflow_run:{run.run_id}")
-    check("redis has data", len(data) > 0)
-    check("redis status=pending", data.get("status") == "pending")
-    check("redis project_id=1", data.get("project_id") == "1")
-    print(f"    redis: {data}", flush=True)
 
     return run
 
@@ -134,17 +125,11 @@ async def test_get_and_list(run_id: str):
 
 async def test_update_status(run_id: str):
     print("\n=== 4. update_run_status ===", flush=True)
-    from src.db import get_redis
     from src.engine.run import InvalidTransitionError, RunStatus, update_run_status
 
     # pending → running
     run = await update_run_status(run_id, RunStatus.RUNNING)
     check("status updated to running", run.status == "running")
-
-    # Redis synced
-    redis = get_redis()
-    data = await redis.hgetall(f"workflow_run:{run_id}")
-    check("redis status=running", data.get("status") == "running")
 
     # Invalid: running → pending
     try:
@@ -163,7 +148,6 @@ async def test_update_status(run_id: str):
 
 async def test_finish_run(run_id: str):
     print("\n=== 5. finish_run ===", flush=True)
-    from src.db import get_redis
     from src.engine.run import InvalidTransitionError, RunStatus, finish_run
 
     # running → completed
@@ -171,12 +155,6 @@ async def test_finish_run(run_id: str):
     check("status=completed", run.status == "completed")
     check("finished_at set", run.finished_at is not None)
     print(f"    finished_at: {run.finished_at}", flush=True)
-
-    # Redis synced
-    redis = get_redis()
-    data = await redis.hgetall(f"workflow_run:{run_id}")
-    check("redis status=completed", data.get("status") == "completed")
-    check("redis finished_at set", data.get("finished_at", "") != "")
 
     # Cannot transition from completed
     try:
