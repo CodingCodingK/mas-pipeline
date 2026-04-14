@@ -25,6 +25,10 @@ def get_all_tools() -> dict[str, Tool]:
     """
     from src.tools.builtins.spawn_agent import SpawnAgentTool
 
+    # Lazy import clawbot tools too — they depend on src.clawbot.session_state
+    # which must not load before src.tools.base is importable.
+    from src.clawbot.tools import get_clawbot_tools
+
     tools: list[Tool] = [
         ReadFileTool(),
         WriteFileTool(),
@@ -35,4 +39,5 @@ def get_all_tools() -> dict[str, Tool]:
         MemoryWriteTool(),
         SearchDocsTool(),
     ]
+    tools.extend(get_clawbot_tools())
     return {t.name: t for t in tools}
