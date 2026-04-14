@@ -18,6 +18,12 @@ from src.tools.base import Tool, ToolContext, ToolResult
 
 logger = logging.getLogger(__name__)
 
+# Roles that must never be launched as a sub-agent. ClawBot is a top-level
+# chat agent with bus-attached identity (channel/chat_id on its tool_context)
+# and must not be reinstantiated inside a pipeline run where that identity
+# would be missing.
+SUB_AGENT_DISALLOWED_ROLES: frozenset[str] = frozenset({"clawbot"})
+
 
 def _snapshot_partial(state: object) -> dict:
     """Best-effort snapshot of a crashed sub-agent's partial transcript + stats.
@@ -123,6 +129,12 @@ class SpawnAgentTool(Tool):
         role: str = params["role"]
         task_description: str = params["task_description"]
         tools_override: list[str] | None = params.get("tools")
+
+        if role in SUB_AGENT_DISALLOWED_ROLES:
+            return ToolResult(
+                output=f"Error: role '{role}' cannot be launched as a sub-agent.",
+                success=False,
+            )
 
         run_id_int = await self._resolve_run_id(context)
 
