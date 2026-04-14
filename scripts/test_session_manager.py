@@ -1,10 +1,8 @@
-"""Session manager tests: Conversation CRUD, Agent Session Redis ops, archival, orphan cleanup."""
+"""Session manager tests: Conversation CRUD, orphan cleanup."""
 
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -146,120 +144,6 @@ async def test_append_message():
 
 
 asyncio.run(test_append_message())
-
-
-# ── 3. Agent Session Redis ops (mocked Redis) ──────────────
-
-print("\n=== 3. Agent Session Redis ===")
-
-
-async def test_agent_session_ops():
-    mock_redis = AsyncMock()
-    mock_redis.expire = AsyncMock()
-    mock_redis.rpush = AsyncMock()
-    mock_redis.lrange = AsyncMock(return_value=[
-        json.dumps({"role": "user", "content": "task"}),
-        json.dumps({"role": "assistant", "content": "done"}),
-    ])
-
-    with (
-        patch("src.session.manager.get_redis", AsyncMock(return_value=mock_redis)),
-        patch("src.session.manager.get_settings") as mock_settings,
-    ):
-        mock_settings.return_value.session.agent_ttl_hours = 24
-
-        from src.session.manager import (
-            create_agent_session,
-            append_agent_message,
-            get_agent_messages,
-        )
-
-        # Create
-        key = await create_agent_session("agent-1", "run-1")
-        check("Session key format", key == "agent_session:agent-1")
-        check("TTL set on create", mock_redis.expire.called)
-        ttl_arg = mock_redis.expire.call_args[0][1]
-        check("TTL is 24h", ttl_arg == 86400)
-
-        # Append
-        await append_agent_message(key, {"role": "user", "content": "task"})
-        check("RPUSH called", mock_redis.rpush.called)
-        check("TTL refreshed on append", mock_redis.expire.call_count >= 2)
-
-        # Get
-        messages = await get_agent_messages(key)
-        check("Get returns list", isinstance(messages, list))
-        check("Get returns 2 messages", len(messages) == 2)
-        check("Messages deserialized", messages[0]["role"] == "user")
-
-
-asyncio.run(test_agent_session_ops())
-
-
-# ── 4. Agent Session archival (mocked) ──────────────────────
-
-print("\n=== 4. Agent Session archival ===")
-
-
-async def test_archive():
-    mock_redis = AsyncMock()
-    mock_redis.lrange = AsyncMock(return_value=[
-        json.dumps({"role": "system", "content": "You are..."}),
-        json.dumps({"role": "assistant", "content": "result"}),
-    ])
-    mock_redis.delete = AsyncMock()
-
-    mock_db_session = AsyncMock()
-    mock_db_session.add = MagicMock()
-    mock_db_session.commit = AsyncMock()
-    mock_db_session.__aenter__ = AsyncMock(return_value=mock_db_session)
-    mock_db_session.__aexit__ = AsyncMock(return_value=None)
-
-    with (
-        patch("src.session.manager.get_redis", AsyncMock(return_value=mock_redis)),
-        patch("src.session.manager.get_db", return_value=mock_db_session),
-    ):
-        from src.session.manager import archive_agent_session
-
-        await archive_agent_session("agent_session:agent-1", "researcher")
-
-    check("PG insert called", mock_db_session.add.called)
-    record = mock_db_session.add.call_args[0][0]
-    check("Record ID from key", record.id == "agent-1")
-    check("Record role", record.agent_role == "researcher")
-    check("Record has 2 messages", len(record.messages) == 2)
-    check("Archived_at set", record.archived_at is not None)
-    check("Redis key deleted", mock_redis.delete.called)
-
-
-asyncio.run(test_archive())
-
-
-async def test_archive_empty():
-    mock_redis = AsyncMock()
-    mock_redis.lrange = AsyncMock(return_value=[])
-    mock_redis.delete = AsyncMock()
-
-    mock_db_session = AsyncMock()
-    mock_db_session.add = MagicMock()
-    mock_db_session.commit = AsyncMock()
-    mock_db_session.__aenter__ = AsyncMock(return_value=mock_db_session)
-    mock_db_session.__aexit__ = AsyncMock(return_value=None)
-
-    with (
-        patch("src.session.manager.get_redis", AsyncMock(return_value=mock_redis)),
-        patch("src.session.manager.get_db", return_value=mock_db_session),
-    ):
-        from src.session.manager import archive_agent_session
-
-        await archive_agent_session("agent_session:agent-2", "writer")
-
-    record = mock_db_session.add.call_args[0][0]
-    check("Empty archive inserts", mock_db_session.add.called)
-    check("Empty archive has 0 messages", len(record.messages) == 0)
-
-
-asyncio.run(test_archive_empty())
 
 
 # ── Summary ──────────────────────────────────────────────────

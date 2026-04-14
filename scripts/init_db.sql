@@ -139,25 +139,18 @@ CREATE INDEX idx_chunks_doc ON document_chunks(doc_id);
 -- IVFFlat index requires rows to exist first; create after initial data load
 -- CREATE INDEX idx_chunks_embedding ON document_chunks USING ivfflat (embedding vector_cosine_ops);
 
--- ============================================================
--- agent_sessions (hot in Redis, cold archive here)
--- ============================================================
-CREATE TABLE agent_sessions (
-    id          VARCHAR(255) PRIMARY KEY,
-    run_id      INTEGER REFERENCES workflow_runs(id) ON DELETE SET NULL,
-    agent_role  VARCHAR(255),
-    messages    JSONB NOT NULL DEFAULT '[]',
-    summary     TEXT,
-    token_count INTEGER,
-    created_at  TIMESTAMP DEFAULT NOW(),
-    archived_at TIMESTAMP
-);
-CREATE INDEX idx_agent_sessions_run ON agent_sessions(run_id);
-
 -- compact_summaries table removed in align-compact-with-cc: compact
 -- summaries are now persisted inline in conversations.messages with
 -- metadata.is_compact_summary=true, matching Claude Code's design.
 DROP TABLE IF EXISTS compact_summaries CASCADE;
+
+-- agent_sessions table removed in remove-agent-session-redis-api:
+-- the Redis hot → PG cold design was incompatible with align-compact-
+-- with-cc (compact rewrites the front of the message history, which
+-- a Redis LIST cannot do cheaply). All 5 manager API functions had
+-- zero live callers. Messages now live in conversations.messages +
+-- agent_runs.messages JSONB.
+DROP TABLE IF EXISTS agent_sessions CASCADE;
 
 -- ============================================================
 -- chat_sessions

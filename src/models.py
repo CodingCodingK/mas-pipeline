@@ -109,19 +109,6 @@ class Conversation(Base):
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
-class AgentSessionRecord(Base):
-    __tablename__ = "agent_sessions"
-
-    id: Mapped[str] = mapped_column(String(255), primary_key=True)
-    run_id: Mapped[int | None] = mapped_column(Integer)
-    agent_role: Mapped[str | None] = mapped_column(String(255))
-    messages: Mapped[list] = mapped_column(JSONB, default=list)
-    summary: Mapped[str | None] = mapped_column(Text)
-    token_count: Mapped[int | None] = mapped_column(Integer)
-    created_at: Mapped[datetime | None] = mapped_column(server_default=func.now())
-    archived_at: Mapped[datetime | None] = mapped_column()
-
-
 class Memory(Base):
     __tablename__ = "memories"
 

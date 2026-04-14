@@ -49,9 +49,6 @@ compact:
   blocking_pct: 0.95
   micro_keep_recent: 3
 
-session:
-  agent_ttl_hours: 24
-
 default_user:
   name: default
   email: admin@mas-pipeline.local

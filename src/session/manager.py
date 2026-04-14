@@ -1,16 +1,12 @@
-"""Session manager: Conversation (PG) + Agent Session (Redis hot → PG cold)."""
+"""Session manager: Conversation (PG)."""
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime
 
-from sqlalchemy import select
-
-from src.db import get_db, get_redis
-from src.models import AgentSessionRecord, Conversation
-from src.project.config import get_settings
+from src.db import get_db
+from src.models import Conversation
 
 logger = logging.getLogger(__name__)
 
@@ -62,67 +58,6 @@ async def get_messages(conversation_id: int) -> list[dict]:
     """Get all messages for a conversation."""
     conv = await get_conversation(conversation_id)
     return list(conv.messages or [])
-
-
-# ── Agent Session (Redis) ──────────────────────────────────
-
-
-def _agent_session_key(agent_id: str) -> str:
-    return f"agent_session:{agent_id}"
-
-
-async def create_agent_session(agent_id: str, run_id: str) -> str:
-    """Create an agent session in Redis with TTL. Returns the session key."""
-    key = _agent_session_key(agent_id)
-    redis = await get_redis()
-    ttl_hours = get_settings().session.agent_ttl_hours
-    await redis.expire(key, ttl_hours * 3600)
-    return key
-
-
-async def append_agent_message(session_key: str, message: dict) -> None:
-    """Append a message to the agent session Redis list and refresh TTL."""
-    redis = await get_redis()
-    await redis.rpush(session_key, json.dumps(message, ensure_ascii=False))
-    ttl_hours = get_settings().session.agent_ttl_hours
-    await redis.expire(session_key, ttl_hours * 3600)
-
-
-async def get_agent_messages(session_key: str) -> list[dict]:
-    """Get all messages from an agent session in Redis."""
-    redis = await get_redis()
-    raw = await redis.lrange(session_key, 0, -1)
-    return [json.loads(r) for r in raw]
-
-
-# ── Agent Session Archival ─────────────────────────────────
-
-
-async def archive_agent_session(session_key: str, agent_role: str) -> None:
-    """Archive an agent session from Redis to PG, then delete the Redis key."""
-    redis = await get_redis()
-
-    # Read all messages from Redis
-    raw = await redis.lrange(session_key, 0, -1)
-    messages = [json.loads(r) for r in raw]
-
-    # Extract agent_id from key
-    agent_id = session_key.removeprefix("agent_session:")
-
-    # Insert into PG
-    async with get_db() as session:
-        record = AgentSessionRecord(
-            id=agent_id,
-            agent_role=agent_role,
-            messages=messages,
-            archived_at=datetime.utcnow(),
-        )
-        session.add(record)
-        await session.commit()
-
-    # Delete Redis key
-    await redis.delete(session_key)
-    logger.info("Archived agent session %s (%d messages)", agent_id, len(messages))
 
 
 # ── Orphan Cleanup ─────────────────────────────────────────

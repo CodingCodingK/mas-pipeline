@@ -97,7 +97,6 @@ class CompactConfig(BaseModel):
 
 
 class SessionConfig(BaseModel):
-    agent_ttl_hours: int = 24
     # Phase 6.1: SessionRunner lifecycle
     idle_timeout_seconds: int = 60
     max_age_seconds: int = 86400
