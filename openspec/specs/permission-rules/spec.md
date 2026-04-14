@@ -1,5 +1,6 @@
-## ADDED Requirements
-
+## Purpose
+Defines the core permission rule primitives — mode enum, rule parsing, glob matching, and the `PermissionChecker` class that evaluates deny-lists against tool invocations.
+## Requirements
 ### Requirement: PermissionMode enum defines three operating modes
 `PermissionMode` SHALL be a `str, Enum` with values: `BYPASS = "bypass"`, `NORMAL = "normal"`, `STRICT = "strict"`.
 
@@ -26,11 +27,15 @@
 - **THEN** it SHALL carry the deny action, reason text, and the rule that triggered it
 
 ### Requirement: TOOL_CONTENT_FIELD maps tool names to their matchable parameter
-`TOOL_CONTENT_FIELD` SHALL be a `dict[str, str]` mapping tool name to the parameter field name used for pattern matching. It SHALL contain at least: shell→command, write→file_path, read_file→file_path, edit→file_path, web_search→query.
+`TOOL_CONTENT_FIELD` SHALL be a `dict[str, str]` mapping tool name to the parameter field name used for pattern matching. It SHALL contain at least: shell→command, write_file→file_path, write→file_path, read_file→file_path, edit→file_path, web_search→query.
 
 #### Scenario: Known tool field lookup
 - **WHEN** looking up "shell" in TOOL_CONTENT_FIELD
 - **THEN** it SHALL return "command"
+
+#### Scenario: write_file field lookup
+- **WHEN** looking up "write_file" in TOOL_CONTENT_FIELD
+- **THEN** it SHALL return "file_path"
 
 #### Scenario: Unknown tool has no field
 - **WHEN** looking up "spawn_agent" in TOOL_CONTENT_FIELD
@@ -113,3 +118,4 @@
 - **GIVEN** config = {}
 - **WHEN** load_permission_rules(config) is called
 - **THEN** it SHALL return an empty list
+
