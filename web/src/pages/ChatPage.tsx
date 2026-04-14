@@ -5,6 +5,7 @@ import { client } from "@/api/client";
 import { useSessionRuntime } from "@/chat/useSessionRuntime";
 import ChatThread from "@/chat/ChatThread";
 import SessionTelemetry from "@/components/SessionTelemetry";
+import { AgentRunDrawerProvider } from "@/components/AgentRunDrawerContext";
 
 interface SessionItem {
   id: number;
@@ -136,6 +137,7 @@ export default function ChatPage() {
   };
 
   return (
+    <AgentRunDrawerProvider>
     <div className="flex h-full overflow-hidden">
       {/* Sidebar */}
       <div className="w-56 flex-shrink-0 border-r border-slate-200 flex flex-col bg-slate-50">
@@ -256,5 +258,6 @@ export default function ChatPage() {
         </div>
       </div>
     </div>
+    </AgentRunDrawerProvider>
   );
 }

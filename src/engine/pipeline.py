@@ -714,7 +714,6 @@ async def _run_node(
     from src.agent.loop import run_agent_to_completion
     from src.agent.runs import complete_agent_run, create_agent_run, fail_agent_run
     from src.agent.state import ExitReason
-    from src.tools.builtins.spawn_agent import extract_final_output
 
     # Create AgentRun audit record
     agent_id = f"{run_id}:{node.role}"
@@ -725,6 +724,7 @@ async def _run_node(
         owner=agent_id,
     )
 
+    state = None
     try:
         state = await create_agent(
             role=node.role,
@@ -735,21 +735,48 @@ async def _run_node(
             permission_mode=permission_mode,
             mcp_manager=mcp_manager,
         )
-        exit_reason = await run_agent_to_completion(state)
-        output = extract_final_output(state.messages)
+        run_result = await run_agent_to_completion(state)
+        stats = {
+            "tool_use_count": run_result.tool_use_count,
+            "total_tokens": run_result.cumulative_tokens,
+            "duration_ms": run_result.duration_ms,
+        }
+        output = run_result.final_output
 
-        if exit_reason == ExitReason.COMPLETED:
-            await complete_agent_run(agent_run.id, output or "(no output)")
-        elif exit_reason == ExitReason.MAX_TURNS:
-            await complete_agent_run(agent_run.id, f"[MAX_TURNS] {output}")
+        if run_result.exit_reason == ExitReason.COMPLETED:
+            await complete_agent_run(
+                agent_run.id, output or "(no output)",
+                run_result.messages, **stats,
+            )
+        elif run_result.exit_reason == ExitReason.MAX_TURNS:
+            await complete_agent_run(
+                agent_run.id, f"[MAX_TURNS] {output}",
+                run_result.messages, **stats,
+            )
         else:
-            await fail_agent_run(agent_run.id, f"[{exit_reason.value}] {output}")
-            raise RuntimeError(f"Node '{node.name}' exited with {exit_reason.value}")
+            await fail_agent_run(
+                agent_run.id, f"[{run_result.exit_reason.value}] {output}",
+                run_result.messages, **stats,
+            )
+            raise RuntimeError(
+                f"Node '{node.name}' exited with {run_result.exit_reason.value}"
+            )
 
         return output or "(no output)"
 
     except Exception:
-        await fail_agent_run(agent_run.id, f"[ERROR] {__import__('traceback').format_exc()}")
+        # Best-effort partial persist: whatever the loop accumulated before crash.
+        partial_messages = list(getattr(state, "messages", None) or [])
+        partial_tool_use = int(getattr(state, "tool_use_count", 0) or 0)
+        partial_tokens = int(getattr(state, "cumulative_tokens", 0) or 0)
+        await fail_agent_run(
+            agent_run.id,
+            f"[ERROR] {__import__('traceback').format_exc()}",
+            partial_messages,
+            partial_tool_use,
+            partial_tokens,
+            0,
+        )
         raise
 
 

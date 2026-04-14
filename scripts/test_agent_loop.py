@@ -178,8 +178,8 @@ async def test_completed_no_tools():
         LLMResponse(content="I don't need any tools for this.", usage=Usage(10, 8, 0)),
     ])
     state = make_state(adapter)
-    reason = await run_agent_to_completion(state)
-    assert reason == ExitReason.COMPLETED
+    result = await run_agent_to_completion(state)
+    assert result.exit_reason == ExitReason.COMPLETED
     assert state.turn_count == 0  # no tool round happened
     # Messages: [user, assistant]
     assert len(state.messages) == 2
@@ -208,8 +208,8 @@ async def test_react_cycle():
         LLMResponse(content="The file starts with a docstring.", usage=Usage(30, 15, 0)),
     ])
     state = make_state(adapter)
-    reason = await run_agent_to_completion(state)
-    assert reason == ExitReason.COMPLETED
+    result = await run_agent_to_completion(state)
+    assert result.exit_reason == ExitReason.COMPLETED
     assert state.turn_count == 1  # one tool round
 
     # Messages: [user, assistant(tool_call), tool_result, assistant(content)]
@@ -239,8 +239,8 @@ async def test_max_turns():
         for i in range(10)
     ]
     state = make_state(MockAdapter(endless_responses), max_turns=2)
-    reason = await run_agent_to_completion(state)
-    assert reason == ExitReason.MAX_TURNS
+    result = await run_agent_to_completion(state)
+    assert result.exit_reason == ExitReason.MAX_TURNS
     assert state.turn_count == 2
     print("  max_turns=2 triggered: OK")
 
@@ -248,8 +248,8 @@ async def test_max_turns():
 async def test_error():
     print("=== agent_loop: ERROR ===")
     state = make_state(FailingAdapter())
-    reason = await run_agent_to_completion(state)
-    assert reason == ExitReason.ERROR
+    result = await run_agent_to_completion(state)
+    assert result.exit_reason == ExitReason.ERROR
     assert state.turn_count == 0
     print("  adapter exception -> ERROR: OK")
 
@@ -262,8 +262,8 @@ async def test_abort():
         LLMResponse(content="should not reach here"),
     ])
     state = make_state(adapter, abort_signal=abort)
-    reason = await run_agent_to_completion(state)
-    assert reason == ExitReason.ABORT
+    result = await run_agent_to_completion(state)
+    assert result.exit_reason == ExitReason.ABORT
     # Adapter should not have been called
     assert adapter._call_count == 0
     print("  pre-set abort signal: OK")

@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import AsyncIterator  # noqa: TC003 — used at runtime for generator return type
+from dataclasses import dataclass
 
 from src.agent.compact import (
     auto_compact,
@@ -43,6 +44,38 @@ def _is_context_length_error(exc: Exception) -> bool:
     return "context_length_exceeded" in msg or "prompt_too_long" in msg
 
 
+def extract_final_output(messages: list[dict]) -> str:
+    """Return the last assistant message's text content.
+
+    Used by run_agent_to_completion and pipeline/_run_node to derive the
+    node's final output after the loop exits. Iterates from the tail and
+    returns the first assistant message with non-empty string content.
+    """
+    for msg in reversed(messages):
+        if msg.get("role") == "assistant":
+            content = msg.get("content")
+            if content and isinstance(content, str) and content.strip():
+                return content.strip()
+    return ""
+
+
+@dataclass
+class AgentRunResult:
+    """Canonical handoff from run_agent_to_completion to callers.
+
+    Single source of truth for how a completed agent run gets persisted
+    — spawn_agent and pipeline._run_node both destructure this instead of
+    reaching into state.* fields post-run.
+    """
+
+    exit_reason: ExitReason
+    messages: list[dict]
+    final_output: str
+    tool_use_count: int
+    cumulative_tokens: int
+    duration_ms: int
+
+
 async def agent_loop(state: AgentState) -> AsyncIterator[StreamEvent]:
     """Run the ReAct loop, yielding StreamEvent for every delta.
 
@@ -53,27 +86,47 @@ async def agent_loop(state: AgentState) -> AsyncIterator[StreamEvent]:
     settings = get_settings()
     keep_recent = settings.compact.micro_keep_recent
 
+    collector = get_collector()
     while True:
         # --- compact pre-processing ---
+        tokens_pre_micro = estimate_tokens(slice_messages_for_prompt(state.messages))
+        micro_started = time.monotonic()
         micro_compact(state.messages, keep_recent=keep_recent)
+        tokens_post_micro = estimate_tokens(slice_messages_for_prompt(state.messages))
+        if tokens_post_micro < tokens_pre_micro:
+            collector.record_compact_event(
+                trigger="micro",
+                before_tokens=tokens_pre_micro,
+                after_tokens=tokens_post_micro,
+                duration_ms=int((time.monotonic() - micro_started) * 1000),
+                turn_index=state.turn_count,
+            )
 
         # Count only the post-compact-boundary slice. state.messages retains
         # pre-boundary entries for PG audit, but they're invisible to the
         # model and must not be counted against the context budget — otherwise
         # auto_compact would run every turn and grow the list without bound.
-        tokens = estimate_tokens(slice_messages_for_prompt(state.messages))
+        tokens = tokens_post_micro
 
         if tokens > thresholds.autocompact_threshold and not state.compact_breaker_tripped:
             logger.info(
                 "Token count %d exceeds autocompact threshold %d, compacting",
                 tokens, thresholds.autocompact_threshold,
             )
+            auto_started = time.monotonic()
             try:
                 result = await auto_compact(
                     state.messages, state.adapter, model, turn=state.turn_count,
                 )
                 state.messages = result.messages
                 state.consecutive_compact_failures = 0
+                collector.record_compact_event(
+                    trigger="auto",
+                    before_tokens=result.tokens_before,
+                    after_tokens=result.tokens_after,
+                    duration_ms=int((time.monotonic() - auto_started) * 1000),
+                    turn_index=state.turn_count,
+                    )
             except Exception:
                 state.consecutive_compact_failures += 1
                 logger.warning(
@@ -94,7 +147,6 @@ async def agent_loop(state: AgentState) -> AsyncIterator[StreamEvent]:
             return
 
         # Call LLM (streaming)
-        collector = get_collector()
         provider_name = _infer_provider(state.adapter)
         model_name = getattr(state.adapter, "model", "") or ""
         llm_started_at = time.monotonic()
@@ -166,6 +218,7 @@ async def agent_loop(state: AgentState) -> AsyncIterator[StreamEvent]:
                 and not state.compact_breaker_tripped
             ):
                 logger.info("Context length exceeded, attempting reactive compact")
+                reactive_started = time.monotonic()
                 try:
                     result = await reactive_compact(
                         state.messages, state.adapter, model, turn=state.turn_count,
@@ -173,6 +226,13 @@ async def agent_loop(state: AgentState) -> AsyncIterator[StreamEvent]:
                     state.messages = result.messages
                     state.has_attempted_reactive_compact = True
                     state.consecutive_compact_failures = 0
+                    collector.record_compact_event(
+                        trigger="reactive",
+                        before_tokens=result.tokens_before,
+                        after_tokens=result.tokens_after,
+                        duration_ms=int((time.monotonic() - reactive_started) * 1000),
+                        turn_index=state.turn_count,
+                            )
                     continue
                 except Exception:
                     state.consecutive_compact_failures += 1
@@ -244,7 +304,14 @@ async def agent_loop(state: AgentState) -> AsyncIterator[StreamEvent]:
             state.exit_reason = ExitReason.ABORT
             return
 
-        # Turn accounting
+        # Turn accounting + per-run statistics (add-subagent-data-parity).
+        # Usage is normalized across providers — sum the three components.
+        state.tool_use_count += len(tool_calls)
+        state.cumulative_tokens += (
+            (usage.input_tokens or 0)
+            + (usage.output_tokens or 0)
+            + (usage.thinking_tokens or 0)
+        )
         state.turn_count += 1
         if state.turn_count >= state.max_turns:
             state.exit_reason = ExitReason.MAX_TURNS
@@ -256,12 +323,22 @@ def _is_aborted(state: AgentState) -> bool:
     return sig is not None and sig.is_set()
 
 
-async def run_agent_to_completion(state: AgentState) -> ExitReason:
-    """Consume all events from agent_loop, return exit reason.
+async def run_agent_to_completion(state: AgentState) -> AgentRunResult:
+    """Consume all events from agent_loop, return a full AgentRunResult.
 
-    Migration helper for callers that don't need streaming
-    (spawn_agent, pipeline engine, etc.).
+    Callers (spawn_agent, pipeline._run_node) destructure this result and
+    pass every field through to complete_agent_run / fail_agent_run so the
+    agent_runs row captures the full transcript + statistics.
     """
+    started_at = time.monotonic()
     async for _event in agent_loop(state):
         pass
-    return state.exit_reason  # type: ignore[return-value]
+    duration_ms = int((time.monotonic() - started_at) * 1000)
+    return AgentRunResult(
+        exit_reason=state.exit_reason or ExitReason.ERROR,
+        messages=state.messages,
+        final_output=extract_final_output(state.messages),
+        tool_use_count=state.tool_use_count,
+        cumulative_tokens=state.cumulative_tokens,
+        duration_ms=duration_ms,
+    )

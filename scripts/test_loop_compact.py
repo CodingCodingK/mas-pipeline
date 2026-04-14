@@ -93,7 +93,7 @@ async def test_microcompact_called():
         result = await run_agent_to_completion(state)
 
     check("Microcompact called", mock_micro.called)
-    check("Loop completes", result == ExitReason.COMPLETED)
+    check("Loop completes", result.exit_reason == ExitReason.COMPLETED)
 
 
 asyncio.run(test_microcompact_called())
@@ -134,7 +134,7 @@ async def test_no_blocking_limit_early_return():
 
         result = await run_agent_to_completion(state)
 
-    check("No TOKEN_LIMIT short-circuit; loop runs to completion", result == ExitReason.COMPLETED)
+    check("No TOKEN_LIMIT short-circuit; loop runs to completion", result.exit_reason == ExitReason.COMPLETED)
 
 
 asyncio.run(test_no_blocking_limit_early_return())
@@ -178,7 +178,7 @@ async def test_autocompact_trigger():
         result = await run_agent_to_completion(state)
 
     check("Autocompact was called", mock_auto.called)
-    check("Loop still completes", result == ExitReason.COMPLETED)
+    check("Loop still completes", result.exit_reason == ExitReason.COMPLETED)
 
 
 asyncio.run(test_autocompact_trigger())
@@ -231,7 +231,7 @@ async def test_reactive_compact():
 
     check("Reactive compact called", mock_reactive.called)
     check("Flag set after reactive", state.has_attempted_reactive_compact)
-    check("Loop completes after retry", result == ExitReason.COMPLETED)
+    check("Loop completes after retry", result.exit_reason == ExitReason.COMPLETED)
 
 
 asyncio.run(test_reactive_compact())
@@ -267,7 +267,7 @@ async def test_second_context_error():
 
         result = await run_agent_to_completion(state)
 
-    check("Second error returns TOKEN_LIMIT", result == ExitReason.TOKEN_LIMIT)
+    check("Second error returns TOKEN_LIMIT", result.exit_reason == ExitReason.TOKEN_LIMIT)
 
 
 asyncio.run(test_second_context_error())
@@ -302,7 +302,7 @@ async def test_non_context_error():
 
         result = await run_agent_to_completion(state)
 
-    check("Non-context error returns ERROR", result == ExitReason.ERROR)
+    check("Non-context error returns ERROR", result.exit_reason == ExitReason.ERROR)
 
 
 asyncio.run(test_non_context_error())

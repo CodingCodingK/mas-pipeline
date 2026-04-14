@@ -92,10 +92,18 @@ async def test_fork_success():
         {"role": "assistant", "content": "Research result here"}
     ]
 
+    from src.agent.loop import AgentRunResult
+    fake_run_result = AgentRunResult(
+        exit_reason=ExitReason.COMPLETED,
+        messages=mock_state.messages,
+        final_output="Research result here",
+        tool_use_count=0,
+        cumulative_tokens=0,
+        duration_ms=0,
+    )
     with (
         patch("src.agent.factory.create_agent", new_callable=AsyncMock, return_value=mock_state),
-        patch("src.agent.loop.run_agent_to_completion", new_callable=AsyncMock, return_value=ExitReason.COMPLETED),
-        patch("src.tools.builtins.spawn_agent.extract_final_output", return_value="Research result here"),
+        patch("src.agent.loop.run_agent_to_completion", new_callable=AsyncMock, return_value=fake_run_result),
     ):
         r = await execute_fork(skill, "Python GIL", {
             "project_id": 1,

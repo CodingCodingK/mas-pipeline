@@ -66,19 +66,29 @@ CREATE INDEX idx_runs_run_id ON workflow_runs(run_id);
 -- agent_runs (audit records for sub-agent executions)
 -- ============================================================
 CREATE TABLE agent_runs (
-    id          SERIAL PRIMARY KEY,
-    run_id      INTEGER NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
-    role        VARCHAR(255) NOT NULL,
-    description TEXT,
-    status      VARCHAR(50) DEFAULT 'running',
-    owner       VARCHAR(255),
-    result      TEXT,
-    metadata    JSONB DEFAULT '{}',
-    created_at  TIMESTAMP DEFAULT NOW(),
-    updated_at  TIMESTAMP DEFAULT NOW()
+    id             SERIAL PRIMARY KEY,
+    run_id         INTEGER NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+    role           VARCHAR(255) NOT NULL,
+    description    TEXT,
+    status         VARCHAR(50) DEFAULT 'running',
+    owner          VARCHAR(255),
+    result         TEXT,
+    messages       JSONB NOT NULL DEFAULT '[]'::jsonb,
+    tool_use_count INTEGER NOT NULL DEFAULT 0,
+    total_tokens   INTEGER NOT NULL DEFAULT 0,
+    duration_ms    INTEGER NOT NULL DEFAULT 0,
+    metadata       JSONB DEFAULT '{}',
+    created_at     TIMESTAMP DEFAULT NOW(),
+    updated_at     TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX idx_agent_runs_run ON agent_runs(run_id);
 CREATE INDEX idx_agent_runs_status ON agent_runs(status);
+
+-- Idempotent upgrades for existing DBs (add-subagent-data-parity)
+ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS messages       JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS tool_use_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS total_tokens   INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS duration_ms    INTEGER NOT NULL DEFAULT 0;
 
 -- ============================================================
 -- memories (project-scoped)

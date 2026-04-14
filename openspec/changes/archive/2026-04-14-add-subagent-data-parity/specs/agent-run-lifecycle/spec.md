@@ -1,12 +1,4 @@
-## Purpose
-Defines the lifecycle of `AgentRun` records: creation, completion, failure, and audit queries for sub-agent launches.
-## Requirements
-### Requirement: create_agent_run records a sub-agent launch
-`create_agent_run(run_id, role, description, owner)` SHALL insert a row into the `agent_runs` table with status='running' and return an AgentRun instance.
-
-#### Scenario: Create agent run
-- **WHEN** create_agent_run is called with role='researcher' and owner='run123:researcher'
-- **THEN** an AgentRun SHALL be created with status='running', role='researcher', owner set
+## MODIFIED Requirements
 
 ### Requirement: complete_agent_run records successful completion
 `complete_agent_run(agent_run_id, result, messages, tool_use_count, total_tokens, duration_ms)` SHALL set status to 'completed', store the result text, persist the complete `messages` list as a JSONB column, persist the three statistics columns, and update updated_at. The `messages` parameter SHALL receive the agent's full `state.messages` dict list (OpenAI format). The statistics parameters SHALL be integers; callers that don't track them MAY pass 0.
@@ -26,29 +18,7 @@ Defines the lifecycle of `AgentRun` records: creation, completion, failure, and 
 - **WHEN** fail_agent_run is called on an agent run with status='running' with error="timeout", messages=[...12 dicts accumulated before failure...], tool_use_count=3, total_tokens=4200, duration_ms=15000
 - **THEN** status SHALL be 'failed', result SHALL contain the error message, messages column SHALL contain the 12-dict partial list, and statistics columns SHALL contain 3 / 4200 / 15000
 
-### Requirement: list_agent_runs and get_agent_run provide query access
-`list_agent_runs(run_id)` SHALL return all agent runs for a workflow run. `get_agent_run(agent_run_id)` SHALL return a single agent run or None.
-
-#### Scenario: List agent runs
-- **WHEN** list_agent_runs is called with a valid run_id
-- **THEN** it SHALL return all agent runs belonging to that workflow run
-
-#### Scenario: Get non-existent agent run
-- **WHEN** get_agent_run is called with a non-existent id
-- **THEN** it SHALL return None
-
-### Requirement: AgentRun is a pure audit record
-AgentRun records SHALL NOT be used for system control flow. Sub-agent completion is signaled to the parent SessionRunner via two channels: (1) the result is persisted as a `<task-notification>` user-role message in `Conversation.messages`, and (2) the parent `SessionRunner.wakeup` event is set. The parent's main loop wakes up, re-enters `agent_loop`, and the LLM sees the new message naturally on the next turn. AgentRun rows SHALL be queried only for audit/debugging purposes.
-
-#### Scenario: Control flow independence
-- **WHEN** a SessionRunner is waiting for sub-agent completion
-- **THEN** it SHALL await its `wakeup` event, NOT poll the `agent_runs` table
-- **AND** the wakeup signal SHALL come from the spawn_agent background callback after it persists the notification message
-
-#### Scenario: No queue object on state
-- **WHEN** an AgentState is constructed for any session
-- **THEN** it SHALL NOT contain a `notification_queue` field
-- **AND** any reference to `parent_state.notification_queue` SHALL fail at import/runtime
+## ADDED Requirements
 
 ### Requirement: AgentRun stores complete transcript for post-hoc inspection
 The `agent_runs` table SHALL have a `messages` column of type JSONB (default `[]`) that stores the complete `state.messages` list produced by the agent loop. This data is used for analytics and debugging; it SHALL NOT be injected back into any LLM's context.
@@ -72,4 +42,3 @@ The `agent_runs` table SHALL have three integer columns — `tool_use_count`, `t
 #### Scenario: Legacy rows default to zero
 - **WHEN** a pre-migration agent_runs row is read
 - **THEN** the three statistics columns SHALL return 0 (the column default)
-

@@ -16,6 +16,10 @@ import {
 import { client, ApiError, __internal } from "@/api/client";
 import { fetchEventStream, type SseEvent } from "@/api/sse";
 import type { RunDetail } from "@/api/types";
+import {
+  AgentRunDrawerProvider,
+  useAgentRunDrawer,
+} from "@/components/AgentRunDrawerContext";
 
 async function downloadExport(runId: string, fmt: "md" | "json") {
   const url =
@@ -80,8 +84,26 @@ interface AgentRunItem {
   status: string;
   owner: string | null;
   result: string | null;
+  tool_use_count: number;
+  total_tokens: number;
+  duration_ms: number;
   created_at: string | null;
   updated_at: string | null;
+}
+
+function formatDurationCompact(ms: number): string {
+  if (!ms) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${Math.round(s - m * 60)}s`;
+}
+
+function formatTokensCompact(n: number): string {
+  if (!n) return "—";
+  if (n < 1000) return `${n}`;
+  return `${(n / 1000).toFixed(1)}k`;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -605,6 +627,14 @@ function ToolCallTable({ events }: { events: TimelineEvent[] }) {
 // ── Main Component ────────────────────────────────────────
 
 export default function RunDetailPage() {
+  return (
+    <AgentRunDrawerProvider>
+      <RunDetailPageInner />
+    </AgentRunDrawerProvider>
+  );
+}
+
+function RunDetailPageInner() {
   const { id, runId } = useParams<{ id: string; runId: string }>();
   const projectId = Number(id);
   const location = useLocation();
@@ -627,6 +657,7 @@ export default function RunDetailPage() {
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [agentRollups, setAgentRollups] = useState<AgentRollup[]>([]);
   const [agentRuns, setAgentRuns] = useState<AgentRunItem[]>([]);
+  const { open: openAgentRunDrawer } = useAgentRunDrawer();
 
   const liveStream = state.liveStream === true && runId === "pending";
 
@@ -1021,6 +1052,15 @@ export default function RunDetailPage() {
                       <th className="text-left px-3 py-2 text-xs font-medium text-slate-500">
                         Status
                       </th>
+                      <th className="text-right px-3 py-2 text-xs font-medium text-slate-500">
+                        Tools
+                      </th>
+                      <th className="text-right px-3 py-2 text-xs font-medium text-slate-500">
+                        Tokens
+                      </th>
+                      <th className="text-right px-3 py-2 text-xs font-medium text-slate-500">
+                        Duration
+                      </th>
                       <th className="text-left px-3 py-2 text-xs font-medium text-slate-500">
                         Created
                       </th>
@@ -1028,8 +1068,13 @@ export default function RunDetailPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {agentRuns.map((ar) => (
-                      <tr key={ar.id} className="hover:bg-slate-50">
-                        <td className="px-3 py-2 font-mono text-xs">
+                      <tr
+                        key={ar.id}
+                        className="hover:bg-blue-50 cursor-pointer"
+                        onClick={() => openAgentRunDrawer(ar.id)}
+                        title="Open transcript"
+                      >
+                        <td className="px-3 py-2 font-mono text-xs text-blue-700">
                           {ar.role}
                         </td>
                         <td className="px-3 py-2 text-xs text-slate-600 max-w-xs truncate">
@@ -1044,6 +1089,15 @@ export default function RunDetailPage() {
                           >
                             {ar.status}
                           </span>
+                        </td>
+                        <td className="px-3 py-2 text-right text-xs text-slate-600 tabular-nums">
+                          {ar.tool_use_count || "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right text-xs text-slate-600 tabular-nums">
+                          {formatTokensCompact(ar.total_tokens)}
+                        </td>
+                        <td className="px-3 py-2 text-right text-xs text-slate-600 tabular-nums">
+                          {formatDurationCompact(ar.duration_ms)}
                         </td>
                         <td className="px-3 py-2 text-xs text-slate-500">
                           {ar.created_at

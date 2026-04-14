@@ -371,7 +371,7 @@ def test_run_agent_to_completion():
 
     result = asyncio.run(run())
 
-    check("returns ExitReason", result == ExitReason.COMPLETED)
+    check("returns AgentRunResult with COMPLETED", result.exit_reason == ExitReason.COMPLETED)
     check("state.exit_reason set", state.exit_reason == ExitReason.COMPLETED)
     check("messages accumulated", len(state.messages) > 2)
 

@@ -34,8 +34,19 @@ async def create_agent_run(
     return agent_run
 
 
-async def complete_agent_run(agent_run_id: int, result: str) -> AgentRun:
-    """Record that a sub-agent completed successfully."""
+async def complete_agent_run(
+    agent_run_id: int,
+    result: str,
+    messages: list[dict],
+    tool_use_count: int,
+    total_tokens: int,
+    duration_ms: int,
+) -> AgentRun:
+    """Record that a sub-agent completed successfully.
+
+    Callers MUST pass statistics and transcript explicitly — no defaults,
+    so a silent migration cannot zero out the new columns.
+    """
     async with get_db() as session:
         agent_run = await session.get(AgentRun, agent_run_id)
         if agent_run is None:
@@ -43,13 +54,28 @@ async def complete_agent_run(agent_run_id: int, result: str) -> AgentRun:
 
         agent_run.status = "completed"
         agent_run.result = result
+        agent_run.messages = messages
+        agent_run.tool_use_count = tool_use_count
+        agent_run.total_tokens = total_tokens
+        agent_run.duration_ms = duration_ms
         agent_run.updated_at = func.now()
 
     return agent_run
 
 
-async def fail_agent_run(agent_run_id: int, error: str) -> AgentRun:
-    """Record that a sub-agent failed."""
+async def fail_agent_run(
+    agent_run_id: int,
+    error: str,
+    messages: list[dict],
+    tool_use_count: int,
+    total_tokens: int,
+    duration_ms: int,
+) -> AgentRun:
+    """Record that a sub-agent failed.
+
+    Persists the partial transcript + statistics so post-mortem analysis
+    can inspect what the sub-agent did before it crashed.
+    """
     async with get_db() as session:
         agent_run = await session.get(AgentRun, agent_run_id)
         if agent_run is None:
@@ -57,6 +83,10 @@ async def fail_agent_run(agent_run_id: int, error: str) -> AgentRun:
 
         agent_run.status = "failed"
         agent_run.result = error
+        agent_run.messages = messages
+        agent_run.tool_use_count = tool_use_count
+        agent_run.total_tokens = total_tokens
+        agent_run.duration_ms = duration_ms
         agent_run.updated_at = func.now()
 
     return agent_run

@@ -49,7 +49,6 @@ async def execute_fork(
     from src.agent.factory import create_agent
     from src.agent.loop import run_agent_to_completion
     from src.agent.state import ExitReason
-    from src.tools.builtins.spawn_agent import extract_final_output
 
     task_description = substitute_variables(skill.content, args, context)
 
@@ -73,8 +72,9 @@ async def execute_fork(
             parent_deny_rules=parent_deny_rules,
         )
 
-        exit_reason = await run_agent_to_completion(state)
-        output = extract_final_output(state.messages)
+        run_result = await run_agent_to_completion(state)
+        output = run_result.final_output
+        exit_reason = run_result.exit_reason
 
         if exit_reason in (ExitReason.COMPLETED, ExitReason.MAX_TURNS):
             return SkillResult(

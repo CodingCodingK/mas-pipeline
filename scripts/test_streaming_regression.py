@@ -155,8 +155,8 @@ def test_pipeline_regression():
     state = make_state_with_adapter(adapter)
 
     async def run():
-        exit_reason = await run_agent_to_completion(state)
-        check("run_agent_to_completion returns COMPLETED", exit_reason == ExitReason.COMPLETED)
+        run_result = await run_agent_to_completion(state)
+        check("run_agent_to_completion returns COMPLETED", run_result.exit_reason == ExitReason.COMPLETED)
         check("state has assistant message", any(m.get("role") == "assistant" for m in state.messages))
         check("assistant content accumulated", state.messages[-1].get("content") == "test response")
 

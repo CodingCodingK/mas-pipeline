@@ -124,6 +124,18 @@ class ErrorEvent:
     parent_turn_id: str | None
 
 
+@dataclass
+class CompactEvent:
+    trigger: str  # "auto" | "reactive" | "micro"
+    before_tokens: int
+    after_tokens: int
+    ratio: float  # after/before, 0..1 (1.0 = no-op)
+    duration_ms: int
+    turn_index: int
+    agent_role: str | None
+    parent_turn_id: str | None
+
+
 EVENT_TYPE_LLM_CALL = "llm_call"
 EVENT_TYPE_TOOL_CALL = "tool_call"
 EVENT_TYPE_AGENT_TURN = "agent_turn"
@@ -132,3 +144,4 @@ EVENT_TYPE_PIPELINE = "pipeline_event"
 EVENT_TYPE_SESSION = "session_event"
 EVENT_TYPE_HOOK = "hook_event"
 EVENT_TYPE_ERROR = "error"
+EVENT_TYPE_COMPACT = "compact"

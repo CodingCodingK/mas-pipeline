@@ -101,6 +101,42 @@ export interface InUseErrorBody {
 
 export type ApiErrorBody = { detail: string } | InUseErrorBody | unknown;
 
+// ── Agent runs ──
+
+export interface AgentRunListItem {
+  id: number;
+  role: string;
+  description: string | null;
+  status: string;
+  owner: string | null;
+  result: string | null;
+  tool_use_count: number;
+  total_tokens: number;
+  duration_ms: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AgentRunListResponse {
+  items: AgentRunListItem[];
+}
+
+export interface AgentRunDetail {
+  id: number;
+  run_id: number;
+  role: string;
+  description: string | null;
+  status: string;
+  owner: string | null;
+  result: string | null;
+  messages: Array<Record<string, unknown>>;
+  tool_use_count: number;
+  total_tokens: number;
+  duration_ms: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 // ── Chat ──
 
 export interface CreateSessionResponse {

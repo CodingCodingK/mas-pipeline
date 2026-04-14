@@ -51,3 +51,8 @@ class AgentState:
     running_agent_count: int = 0
     # Set by agent_loop generator before ending (replaces return value).
     exit_reason: ExitReason | None = None
+    # Phase 8.6 add-subagent-data-parity: per-run statistics accumulated
+    # turn-level in agent_loop, consumed by run_agent_to_completion and
+    # persisted to agent_runs table for post-hoc analysis.
+    tool_use_count: int = 0
+    cumulative_tokens: int = 0

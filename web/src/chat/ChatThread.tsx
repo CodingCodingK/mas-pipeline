@@ -11,6 +11,22 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
 import { ArrowUp, Square, ChevronDown, ChevronRight, Copy, Check, Download, Loader2 } from "lucide-react";
 import { useRef, useLayoutEffect, useState, type FC } from "react";
+import { useAgentRunDrawer } from "@/components/AgentRunDrawerContext";
+
+function formatDurationShort(ms: number): string {
+  if (!ms) return "0ms";
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${Math.round(s - m * 60)}s`;
+}
+
+function formatTokensShort(n: number): string {
+  if (!n) return "0";
+  if (n < 1000) return `${n}`;
+  return `${(n / 1000).toFixed(1)}k`;
+}
 
 const MarkdownText: FC<{ text: string }> = () => (
   <MarkdownTextPrimitive className="aui-md-root" remarkPlugins={[remarkGfm]} />
@@ -39,36 +55,84 @@ const ThinkingPart: FC<DataMessagePartProps<{ thinking: string }>> = ({ data }) 
 };
 
 const TaskNotificationPart: FC<
-  DataMessagePartProps<{ sub_agent_role: string; status: string; result: string }>
+  DataMessagePartProps<{
+    sub_agent_role: string;
+    status: string;
+    result: string;
+    agent_run_id?: number;
+    tool_use_count?: number;
+    total_tokens?: number;
+    duration_ms?: number;
+  }>
 > = ({ data }) => {
   const [open, setOpen] = useState(false);
+  const { open: openDrawer } = useAgentRunDrawer();
   if (!data) return null;
   const isOk = data.status === "completed";
   const preview =
     data.result.length > 80
       ? data.result.slice(0, 80) + "…"
       : data.result;
+  const hasStats =
+    data.agent_run_id != null ||
+    data.tool_use_count != null ||
+    data.total_tokens != null ||
+    data.duration_ms != null;
+  const canDrill = data.agent_run_id != null;
   return (
     <div className="my-1.5 rounded border border-slate-200 bg-white text-xs overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-slate-50"
-      >
-        {open ? <ChevronDown className="w-3 h-3 flex-shrink-0" /> : <ChevronRight className="w-3 h-3 flex-shrink-0" />}
+      <div className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-slate-50">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="flex-shrink-0 p-0.5 -m-0.5 rounded hover:bg-slate-200"
+          aria-label={open ? "Collapse" : "Expand"}
+        >
+          {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        </button>
         <span
           className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${isOk ? "bg-green-500" : "bg-red-500"}`}
         />
-        <span className="font-medium flex-shrink-0">
+        <button
+          type="button"
+          disabled={!canDrill}
+          onClick={() => canDrill && openDrawer(data.agent_run_id!)}
+          className={`font-medium flex-shrink-0 ${canDrill ? "hover:underline text-blue-700" : "text-slate-700 cursor-default"}`}
+          title={canDrill ? "Open transcript" : undefined}
+        >
           {data.sub_agent_role}
-        </span>
+        </button>
         {!open && preview && (
           <span className="text-slate-400 truncate ml-1">{preview}</span>
         )}
-        <span className={`ml-auto text-[10px] flex-shrink-0 ${isOk ? "text-green-600" : "text-red-500"}`}>
-          {data.status}
-        </span>
-      </button>
+        {hasStats && (
+          <div className="ml-auto flex items-center gap-1 flex-shrink-0">
+            {data.tool_use_count != null && (
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">
+                <span className="text-slate-400">tools</span> {data.tool_use_count}
+              </span>
+            )}
+            {data.total_tokens != null && (
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">
+                <span className="text-slate-400">tk</span> {formatTokensShort(data.total_tokens)}
+              </span>
+            )}
+            {data.duration_ms != null && (
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">
+                {formatDurationShort(data.duration_ms)}
+              </span>
+            )}
+            <span className={`text-[10px] ${isOk ? "text-green-600" : "text-red-500"}`}>
+              {data.status}
+            </span>
+          </div>
+        )}
+        {!hasStats && (
+          <span className={`ml-auto text-[10px] flex-shrink-0 ${isOk ? "text-green-600" : "text-red-500"}`}>
+            {data.status}
+          </span>
+        )}
+      </div>
       {open && data.result && (
         <div className="border-t border-slate-100 px-2.5 py-2 max-h-72 overflow-y-auto">
           <pre className="whitespace-pre-wrap text-slate-700 text-[11px] leading-relaxed">

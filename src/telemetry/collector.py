@@ -37,6 +37,7 @@ from src.events.bus import EventBus
 from src.telemetry.events import (
     EVENT_TYPE_AGENT_SPAWN,
     EVENT_TYPE_AGENT_TURN,
+    EVENT_TYPE_COMPACT,
     EVENT_TYPE_ERROR,
     EVENT_TYPE_HOOK,
     EVENT_TYPE_LLM_CALL,
@@ -357,6 +358,32 @@ class TelemetryCollector:
             "parent_turn_id": current_turn_id.get(),
         }
         self._enqueue(self._envelope(EVENT_TYPE_HOOK, payload))
+
+    def record_compact_event(
+        self,
+        *,
+        trigger: str,  # "auto" | "reactive" | "micro"
+        before_tokens: int,
+        after_tokens: int,
+        duration_ms: int,
+        turn_index: int,
+        agent_role: str | None = None,
+    ) -> None:
+        if not self._enabled:
+            return
+        ratio = (after_tokens / before_tokens) if before_tokens > 0 else 1.0
+        payload: dict[str, Any] = {
+            "trigger": trigger,
+            "before_tokens": before_tokens,
+            "after_tokens": after_tokens,
+            "ratio": round(ratio, 4),
+            "duration_ms": duration_ms,
+            "turn_index": turn_index,
+            "parent_turn_id": current_turn_id.get(),
+        }
+        self._enqueue(
+            self._envelope(EVENT_TYPE_COMPACT, payload, agent_role=agent_role)
+        )
 
     def record_error(
         self,

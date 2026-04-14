@@ -12,48 +12,81 @@ import asyncio
 import logging
 import uuid
 
+from src.agent.loop import extract_final_output
 from src.telemetry import current_spawn_id, get_collector
 from src.tools.base import Tool, ToolContext, ToolResult
 
 logger = logging.getLogger(__name__)
 
 
-def extract_final_output(messages: list[dict]) -> str:
-    """Extract the last assistant message with text content."""
-    for msg in reversed(messages):
-        if msg.get("role") == "assistant":
-            content = msg.get("content")
-            if content and isinstance(content, str) and content.strip():
-                return content.strip()
-    return ""
+def _snapshot_partial(state: object) -> dict:
+    """Best-effort snapshot of a crashed sub-agent's partial transcript + stats.
+
+    Used by timeout / cancel / unhandled-exception branches so fail_agent_run
+    can still persist whatever the loop had accumulated before dying. Returns
+    the keyword arguments for complete_agent_run / fail_agent_run.
+    """
+    messages = getattr(state, "messages", None) or []
+    return {
+        "messages": list(messages) if isinstance(messages, list) else [],
+        "tool_use_count": int(getattr(state, "tool_use_count", 0) or 0),
+        "total_tokens": int(getattr(state, "cumulative_tokens", 0) or 0),
+        "duration_ms": 0,  # monotonic unknown at crash site — honest zero
+    }
 
 
 def format_task_notification(
-    agent_run_id: int, role: str, status: str, result: str
+    agent_run_id: int,
+    role: str,
+    status: str,
+    result: str,
+    tool_use_count: int,
+    total_tokens: int,
+    duration_ms: int,
 ) -> str:
-    """Format a CC-style <task-notification> XML string."""
+    """Format a CC-style <task-notification> XML string.
+
+    Field order is canonical: id, role, status, statistics, result.
+    Statistics are placed between status and result so main agent models
+    skimming the prefix can cost-gate before paying to parse the body.
+    """
     return (
         f"<task-notification>\n"
         f"<agent-run-id>{agent_run_id}</agent-run-id>\n"
         f"<role>{role}</role>\n"
         f"<status>{status}</status>\n"
+        f"<tool-use-count>{tool_use_count}</tool-use-count>\n"
+        f"<total-tokens>{total_tokens}</total-tokens>\n"
+        f"<duration-ms>{duration_ms}</duration-ms>\n"
         f"<result>{result}</result>\n"
         f"</task-notification>"
     )
 
 
 def _build_notification_message(
-    agent_run_id: int, role: str, status: str, result: str
+    agent_run_id: int,
+    role: str,
+    status: str,
+    result: str,
+    tool_use_count: int,
+    total_tokens: int,
+    duration_ms: int,
 ) -> dict:
     """Wrap a task notification as a user-role message dict for Conversation.messages."""
     return {
         "role": "user",
-        "content": format_task_notification(agent_run_id, role, status, result),
+        "content": format_task_notification(
+            agent_run_id, role, status, result,
+            tool_use_count, total_tokens, duration_ms,
+        ),
         "metadata": {
             "kind": "task_notification",
             "agent_run_id": agent_run_id,
             "sub_agent_role": role,
             "status": status,
+            "tool_use_count": tool_use_count,
+            "total_tokens": total_tokens,
+            "duration_ms": duration_ms,
         },
     }
 
@@ -174,6 +207,8 @@ class SpawnAgentTool(Tool):
 
         status = "failed"
         result = ""
+        stats = {"tool_use_count": 0, "total_tokens": 0, "duration_ms": 0}
+        state: object = None  # populated after create_agent for best-effort failure persist
         timeout_seconds = get_settings().spawn_agent.timeout_seconds
 
         try:
@@ -215,28 +250,50 @@ class SpawnAgentTool(Tool):
                     session_id=context.session_id,
                     project_id=context.project_id,
                 ) as turn_capture:
-                    exit_reason = await asyncio.wait_for(
+                    run_result = await asyncio.wait_for(
                         run_agent_to_completion(state),
                         timeout=timeout_seconds,
                     )
-                    output = extract_final_output(state.messages)
-                    turn_capture["output"] = (output or "")[:200]
-                    turn_capture["stop_reason"] = exit_reason.value if exit_reason else "done"
+                    turn_capture["output"] = (run_result.final_output or "")[:200]
+                    turn_capture["stop_reason"] = (
+                        run_result.exit_reason.value if run_result.exit_reason else "done"
+                    )
+
+                exit_reason = run_result.exit_reason
+                output = run_result.final_output
+                stats = {
+                    "tool_use_count": run_result.tool_use_count,
+                    "total_tokens": run_result.cumulative_tokens,
+                    "duration_ms": run_result.duration_ms,
+                }
+                run_messages = run_result.messages
 
                 if exit_reason == ExitReason.COMPLETED:
-                    await complete_agent_run(agent_run_id, output or "(no output)")
+                    await complete_agent_run(
+                        agent_run_id, output or "(no output)",
+                        run_messages, **stats,
+                    )
                     status = "completed"
                     result = output or "(no output)"
                 elif exit_reason == ExitReason.MAX_TURNS:
-                    await complete_agent_run(agent_run_id, f"[MAX_TURNS] {output}")
+                    await complete_agent_run(
+                        agent_run_id, f"[MAX_TURNS] {output}",
+                        run_messages, **stats,
+                    )
                     status = "completed"
                     result = f"[MAX_TURNS] {output}"
                 elif exit_reason == ExitReason.ABORT:
-                    await fail_agent_run(agent_run_id, f"[ABORT] agent aborted. {output}")
+                    await fail_agent_run(
+                        agent_run_id, f"[ABORT] agent aborted. {output}",
+                        run_messages, **stats,
+                    )
                     status = "failed"
                     result = f"[ABORT] agent aborted. {output}"
                 else:
-                    await fail_agent_run(agent_run_id, f"[ERROR] agent failed. {output}")
+                    await fail_agent_run(
+                        agent_run_id, f"[ERROR] agent failed. {output}",
+                        run_messages, **stats,
+                    )
                     status = "failed"
                     result = f"[ERROR] agent failed. {output}"
 
@@ -245,18 +302,25 @@ class SpawnAgentTool(Tool):
                     "Sub-agent '%s' (agent_run %d) exceeded %ds timeout",
                     role, agent_run_id, timeout_seconds,
                 )
+                partial = _snapshot_partial(state)
                 await fail_agent_run(
                     agent_run_id,
                     f"[TIMEOUT] sub-agent exceeded {timeout_seconds}s",
+                    **partial,
                 )
+                stats = {k: partial[k] for k in ("tool_use_count", "total_tokens", "duration_ms")}
                 status = "failed"
                 result = f"[TIMEOUT] sub-agent exceeded {timeout_seconds}s"
             except asyncio.CancelledError:
                 logger.warning("Sub-agent '%s' (agent_run %d) cancelled", role, agent_run_id)
+                partial = _snapshot_partial(state)
                 try:
-                    await fail_agent_run(agent_run_id, "[CANCELLED] sub-agent cancelled")
+                    await fail_agent_run(
+                        agent_run_id, "[CANCELLED] sub-agent cancelled", **partial,
+                    )
                 except Exception:
                     logger.exception("Failed to mark cancelled agent_run %d", agent_run_id)
+                stats = {k: partial[k] for k in ("tool_use_count", "total_tokens", "duration_ms")}
                 status = "failed"
                 result = "[CANCELLED] sub-agent cancelled"
                 # Do not re-raise — we still want to persist the notification.
@@ -264,10 +328,14 @@ class SpawnAgentTool(Tool):
                 logger.exception(
                     "Sub-agent '%s' (agent_run %d) raised exception", role, agent_run_id
                 )
+                partial = _snapshot_partial(state)
                 try:
-                    await fail_agent_run(agent_run_id, f"[ERROR] {exc}")
+                    await fail_agent_run(
+                        agent_run_id, f"[ERROR] {exc}", **partial,
+                    )
                 except Exception:
                     logger.exception("Failed to mark failed agent_run %d", agent_run_id)
+                stats = {k: partial[k] for k in ("tool_use_count", "total_tokens", "duration_ms")}
                 status = "failed"
                 result = f"[ERROR] {exc}"
 
@@ -278,6 +346,9 @@ class SpawnAgentTool(Tool):
                 role=role,
                 status=status,
                 result=result,
+                tool_use_count=stats["tool_use_count"],
+                total_tokens=stats["total_tokens"],
+                duration_ms=stats["duration_ms"],
                 context=context,
             )
 
@@ -307,12 +378,18 @@ class SpawnAgentTool(Tool):
         role: str,
         status: str,
         result: str,
+        tool_use_count: int,
+        total_tokens: int,
+        duration_ms: int,
         context: ToolContext,
     ) -> None:
         """Persist task notification + wake parent runner (in-proc + cross-proc)."""
         from src.session.manager import append_message
 
-        message = _build_notification_message(agent_run_id, role, status, result)
+        message = _build_notification_message(
+            agent_run_id, role, status, result,
+            tool_use_count, total_tokens, duration_ms,
+        )
 
         if context.conversation_id is not None:
             try:

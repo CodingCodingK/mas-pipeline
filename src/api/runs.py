@@ -25,8 +25,8 @@ from src.engine.run import (
     unsubscribe_pipeline_events,
     update_run_status,
 )
-from src.agent.runs import list_agent_runs
-from src.models import WorkflowRun
+from src.agent.runs import get_agent_run, list_agent_runs
+from src.models import AgentRun, WorkflowRun
 from src.storage import resolve_pipeline_file
 
 logger = logging.getLogger(__name__)
@@ -88,12 +88,37 @@ class AgentRunItem(BaseModel):
     status: str
     owner: str | None = None
     result: str | None = None
+    tool_use_count: int = 0
+    total_tokens: int = 0
+    duration_ms: int = 0
     created_at: str | None = None
     updated_at: str | None = None
 
 
 class AgentRunListResponse(BaseModel):
     items: list[AgentRunItem]
+
+
+class AgentRunDetail(BaseModel):
+    """Full agent run record including transcript.
+
+    Returned only by the single-id endpoint. The list endpoint deliberately
+    excludes `messages` to avoid TOASTed JSONB reads for every row.
+    """
+
+    id: int
+    run_id: int
+    role: str
+    description: str | None = None
+    status: str
+    owner: str | None = None
+    result: str | None = None
+    messages: list[dict] = []
+    tool_use_count: int = 0
+    total_tokens: int = 0
+    duration_ms: int = 0
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 # ── Helpers ─────────────────────────────────────────────────
@@ -360,25 +385,59 @@ async def export_run(
     )
 
 
+def _to_agent_run_item(a: AgentRun) -> AgentRunItem:
+    return AgentRunItem(
+        id=a.id,
+        role=a.role,
+        description=a.description,
+        status=a.status,
+        owner=a.owner,
+        result=a.result,
+        tool_use_count=a.tool_use_count or 0,
+        total_tokens=a.total_tokens or 0,
+        duration_ms=a.duration_ms or 0,
+        created_at=str(a.created_at) if a.created_at else None,
+        updated_at=str(a.updated_at) if a.updated_at else None,
+    )
+
+
 @router.get("/runs/{run_id}/agents", response_model=AgentRunListResponse)
 async def list_run_agents(run_id: str) -> AgentRunListResponse:
-    """List all AgentRun records for a workflow run."""
+    """List all AgentRun records for a workflow run.
+
+    Excludes the `messages` JSONB column for performance — use
+    `GET /api/agent-runs/{id}` to fetch the full transcript for a single row.
+    """
     run = await get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
     agents = await list_agent_runs(run.id)
-    return AgentRunListResponse(
-        items=[
-            AgentRunItem(
-                id=a.id,
-                role=a.role,
-                description=a.description,
-                status=a.status,
-                owner=a.owner,
-                result=a.result,
-                created_at=str(a.created_at) if a.created_at else None,
-                updated_at=str(a.updated_at) if a.updated_at else None,
-            )
-            for a in agents
-        ]
+    return AgentRunListResponse(items=[_to_agent_run_item(a) for a in agents])
+
+
+@router.get("/agent-runs/{agent_run_id}", response_model=AgentRunDetail)
+async def get_agent_run_detail(agent_run_id: int) -> AgentRunDetail:
+    """Return the full AgentRun record including transcript + statistics.
+
+    Used by analysis UIs (chat drawer, pipeline RunDetailPage drawer) to
+    inspect a completed sub-agent post-hoc. Main-agent runtime SHALL NOT
+    call this — it is frontend-only.
+    """
+    a = await get_agent_run(agent_run_id)
+    if a is None:
+        raise HTTPException(status_code=404, detail="agent run not found")
+    return AgentRunDetail(
+        id=a.id,
+        run_id=a.run_id,
+        role=a.role,
+        description=a.description,
+        status=a.status,
+        owner=a.owner,
+        result=a.result,
+        messages=list(a.messages or []),
+        tool_use_count=a.tool_use_count or 0,
+        total_tokens=a.total_tokens or 0,
+        duration_ms=a.duration_ms or 0,
+        created_at=str(a.created_at) if a.created_at else None,
+        updated_at=str(a.updated_at) if a.updated_at else None,
     )
