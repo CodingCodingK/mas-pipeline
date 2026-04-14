@@ -32,9 +32,18 @@ logger = logging.getLogger(__name__)
 
 
 def _infer_provider(adapter: object) -> str:
-    """Derive a short provider name from the adapter's module path."""
+    """Derive the provider label for telemetry.
+
+    Prefers `adapter.provider_label` (set by the router from the resolved
+    provider name — e.g. "openai", "deepseek", "qwen") so `llm_call` events
+    match the `{provider}/{model}` keys in `config/pricing.yaml`. Falls back
+    to the adapter's Python module name for legacy adapters that don't set
+    the attribute.
+    """
+    label = getattr(adapter, "provider_label", None)
+    if isinstance(label, str) and label:
+        return label
     module = type(adapter).__module__
-    # e.g. "src.llm.anthropic" -> "anthropic", "src.llm.openai_compat" -> "openai_compat"
     return module.rsplit(".", 1)[-1]
 
 

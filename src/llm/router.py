@@ -98,4 +98,5 @@ def route(model_name: str) -> LLMAdapter:
         api_base=provider_cfg.api_base,
         api_key=provider_cfg.api_key,
         model=model_name,
+        provider_label=provider_name,
     )

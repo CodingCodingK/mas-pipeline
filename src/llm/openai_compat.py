@@ -32,9 +32,19 @@ class LLMAPIError(Exception):
 class OpenAICompatAdapter(LLMAdapter):
     """Adapter for any OpenAI-compatible API."""
 
-    def __init__(self, api_base: str, api_key: str, model: str):
+    def __init__(
+        self,
+        api_base: str,
+        api_key: str,
+        model: str,
+        provider_label: str | None = None,
+    ):
         self.api_base = api_base.rstrip("/")
         self.model = model
+        # Carries the router-resolved provider name (e.g. "openai", "deepseek",
+        # "qwen", "openai_compat") so telemetry labels match pricing.yaml keys
+        # instead of defaulting to the adapter's module name.
+        self.provider_label = provider_label or "openai_compat"
         self._client = httpx.AsyncClient(
             base_url=self.api_base,
             headers={

@@ -28,6 +28,7 @@ class AnthropicAdapter(LLMAdapter):
     def __init__(self, api_base: str, api_key: str, model: str):
         self.api_base = api_base.rstrip("/")
         self.model = model
+        self.provider_label = "anthropic"
         self._client = httpx.AsyncClient(
             base_url=self.api_base,
             headers={
