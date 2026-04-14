@@ -10,3 +10,13 @@ providers:
     api_key: AIzaxxxxx
   deepseek:
     api_key: sk-xxxxx
+
+# MCP github server — provision a GitHub Personal Access Token via the
+# GITHUB_PAT environment variable (NOT this file — never commit tokens).
+# Required scope: public_repo (read-only access to public repos + search).
+# Create a token at: https://github.com/settings/tokens
+# Example:
+#   export GITHUB_PAT=ghp_xxxxxxxxxxxxxxxxxxxx
+# If GITHUB_PAT is unset, MCPManager will try to start the github server
+# without a token — calls that require auth will fail gracefully, the rest
+# of the stack still works normally.

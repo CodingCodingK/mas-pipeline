@@ -53,6 +53,16 @@ class Tool(ABC):
         """Whether this invocation is read-only (Phase 1: equals is_concurrency_safe)."""
         return self.is_concurrency_safe(params)
 
+    def normalize_params(self, params: dict) -> dict:
+        """Normalize tool parameters before the PreToolUse hook sees them.
+
+        Default: identity. Tools that accept path-like fields should override
+        (e.g., write_file resolves file_path via os.path.realpath so that the
+        permission layer sees the real destination, not the pre-traversal string).
+        MUST NOT mutate the input dict; return a new dict if changes are needed.
+        """
+        return params
+
     @abstractmethod
     async def call(self, params: dict, context: ToolContext) -> ToolResult:
         """Execute the tool and return a result."""

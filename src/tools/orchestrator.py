@@ -115,7 +115,7 @@ class ToolOrchestrator:
                 success=False,
             )
 
-        # Cast → validate → call
+        # Cast → validate → normalize → call
         params = cast_params(tc.arguments, tool.input_schema)
         errors = validate_params(params, tool.input_schema)
         if errors:
@@ -123,6 +123,10 @@ class ToolOrchestrator:
                 f"  - {e}" for e in errors
             )
             return ToolResult(output=msg, success=False)
+
+        # Let the tool normalize path-like params before the permission layer sees them.
+        # write_file uses this to realpath() file_path so ../ traversal matches deny rules.
+        params = tool.normalize_params(params)
 
         # --- PreToolUse hooks ---
         if self.hook_runner:

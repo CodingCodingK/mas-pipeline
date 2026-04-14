@@ -64,3 +64,37 @@ server:
 sandbox:
   enabled: true              # Wrap ShellTool commands with bwrap/sandbox-exec when available
   fail_if_unavailable: false # If true, refuse to start when the platform sandbox binary is missing
+
+# Permission rules — deny-list mode, evaluated by PermissionChecker in NORMAL mode.
+# Agents running in BYPASS mode (not used by chat/session paths) are not affected.
+# write_file paths are matched against a cwd-relative, realpath-normalized string,
+# so `../` traversal and symlinks cannot bypass these rules.
+permissions:
+  deny:
+    # Protected write paths — prevent LLM hallucinated edits to project internals
+    - write_file(agents/**)
+    - write_file(src/**)
+    - write_file(config/**)
+    - write_file(openspec/**)
+    - write_file(.plan/**)
+    - write_file(pipelines/**)
+    - write_file(skills/**)
+    - write_file(.git/**)
+    - write_file(.env*)
+    - write_file(.claude/**)
+    # Dangerous shell command patterns — second line of defense
+    - shell(rm -rf *)
+    - shell(sudo *)
+    - shell(curl *|*sh*)
+    - shell(git push *)
+    - shell(* > /etc/*)
+
+# MCP servers — connected by MCPManager at pipeline/session start.
+# Servers that fail to start are logged and skipped (non-fatal).
+mcp_servers:
+  github:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PAT:}
+mcp_default_access: all

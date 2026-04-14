@@ -68,6 +68,7 @@ class SessionRunner:
         self._pg_synced_count = 0  # how many PG messages we've synced
         self._system_prefix_len = 0  # state.messages entries before PG history
         self._channel: str | None = None  # captured during start() from ChatSession
+        self.mcp_manager = None  # MCPManager — instantiated in start(), shut down in _main_loop finally
 
         get_collector().record_session_event(
             session_event_type="created",
@@ -88,9 +89,28 @@ class SessionRunner:
         """
         from src.agent.factory import create_agent
         from src.bus.session import get_session_history
+        from src.mcp.manager import MCPManager
         from src.permissions.types import PermissionMode
 
         role = _MODE_TO_ROLE[self.mode]
+
+        # Start MCP servers before constructing the agent so the factory can
+        # register their tools into the ToolRegistry. Failures are non-fatal:
+        # MCPManager.start logs-and-skips each unreachable server.
+        settings = get_settings()
+        self.mcp_manager = MCPManager()
+        try:
+            await self.mcp_manager.start(settings.mcp_servers)
+            mcp_count = sum(len(tools) for tools in self.mcp_manager._tools.values())
+            logger.info(
+                "SessionRunner %d: MCPManager started with %d tools from %d servers",
+                self.session_id, mcp_count, len(self.mcp_manager._tools),
+            )
+        except Exception:
+            logger.exception(
+                "SessionRunner %d: MCPManager.start crashed, continuing without MCP",
+                self.session_id,
+            )
 
         # Load history from PG before constructing the agent
         history = await get_session_history(self.conversation_id)
@@ -102,6 +122,7 @@ class SessionRunner:
             run_id=f"session-{self.session_id}",
             permission_mode=PermissionMode.NORMAL,
             abort_signal=asyncio.Event(),
+            mcp_manager=self.mcp_manager,
         )
 
         # Replace factory-injected boilerplate user message with real history.
@@ -299,6 +320,14 @@ class SessionRunner:
                 if not t.done():
                     t.cancel()
             self.child_tasks.clear()
+            if self.mcp_manager is not None:
+                try:
+                    await self.mcp_manager.shutdown()
+                except Exception:
+                    logger.exception(
+                        "SessionRunner %d: MCPManager.shutdown failed",
+                        self.session_id,
+                    )
             get_collector().record_session_event(
                 session_event_type=exit_reason_kind,
                 channel=self._channel,

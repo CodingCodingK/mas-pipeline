@@ -36,6 +36,7 @@ class PermissionResult:
 # Tools not listed here only support tool_name-level rules (no content matching).
 TOOL_CONTENT_FIELD: dict[str, str] = {
     "shell": "command",
+    "write_file": "file_path",
     "write": "file_path",
     "read_file": "file_path",
     "edit": "file_path",

@@ -9,6 +9,7 @@ from src.tools.builtins.read_file import ReadFileTool
 from src.tools.builtins.search_docs import SearchDocsTool
 from src.tools.builtins.shell import ShellTool
 from src.tools.builtins.web_search import WebSearchTool
+from src.tools.builtins.write_file import WriteFileTool
 
 if TYPE_CHECKING:
     from src.tools.base import Tool
@@ -26,6 +27,7 @@ def get_all_tools() -> dict[str, Tool]:
 
     tools: list[Tool] = [
         ReadFileTool(),
+        WriteFileTool(),
         ShellTool(),
         SpawnAgentTool(),
         WebSearchTool(),
