@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>mas-pipeline benchmarks</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+         max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { border-bottom: 2px solid #333; padding-bottom: .3rem; }
+  h2 { margin-top: 2.5rem; border-bottom: 1px solid #ddd; padding-bottom: .2rem; }
+  h3 { margin-top: 1.5rem; color: #555; }
+  .narrative { color: #666; font-style: italic; margin: .3rem 0 1rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .35rem .6rem; text-align: left; }
+  th { background: #f4f4f4; }
+  canvas { max-width: 100%; }
+  .card-row { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1rem 0; }
+  .card { flex: 1 1 180px; border: 1px solid #ccc; border-radius: 6px;
+          padding: .8rem 1rem; background: #fafafa; }
+  .card .label { font-size: .85rem; color: #777; }
+  .card .value { font-size: 1.4rem; font-weight: 600; margin-top: .2rem; }
+  code { background: #f4f4f4; padding: 0 .3rem; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>mas-pipeline benchmarks</h1>
+<p>Generated from 2 snapshot(s). Numbers come from the
+same SQL queries as the future Observability tab.</p>
+
+<div class="card-row">
+  <div class="card"><div class="label">LLM p95 (ms)</div>
+    <div class="value">14470</div></div>
+  <div class="card"><div class="label">Avg cost / run (USD)</div>
+    <div class="value">0.0052</div></div>
+  <div class="card"><div class="label">Tool failure rate</div>
+    <div class="value">0.0%</div></div>
+  <div class="card"><div class="label">RAG share of tool-ms</div>
+    <div class="value">0%</div></div>
+  <div class="card"><div class="label">Compact ratio</div>
+    <div class="value">0.00</div></div>
+  <div class="card"><div class="label">Peak sub-agent concurrency</div>
+    <div class="value">2</div></div>
+</div>
+
+
+<h2>collect — any</h2>
+<p class="narrative">Source: <code>.plan\benchmarks\20260414_075316_collect_any.json</code> · Window: <code>2026-04-13T07:53:16.117167+00:00</code> → <code>2026-04-14T07:53:16.117167+00:00</code></p>
+
+<h3>LLM latency (ms)</h3>
+<p class="narrative">LLM 首 token + 总耗时延迟分布。回答面试官'长尾抖动'问题的原始数据。</p>
+<canvas id="chart_llm_1"></canvas>
+
+<h3>Token cost by model</h3>
+<p class="narrative">每次调用的 token 消耗与 USD 成本，汇总到 run / scenario 层。是成本敏感度叙事的硬数据。</p>
+<canvas id="chart_cost_1"></canvas>
+
+<h3>Tool round-trip</h3>
+<p class="narrative">各 built-in tool 的往返延迟与失败率，指出工具层瓶颈。</p>
+<canvas id="chart_tool_1"></canvas>
+
+<h3>Compact stats</h3>
+<p class="narrative">micro / auto / reactive 三档触发频次与压缩比，证明 compact 策略有效。</p>
+<canvas id="chart_compact_1"></canvas>
+
+<h3>Sub-agent fanout</h3>
+<p class="narrative">coordinator spawns 的并发峰值 / 递归深度 / 平均扇出，展示多 agent 差异化能力。</p>
+<table>
+  <tr><th>max_concurrent</th><td>2</td></tr>
+  <tr><th>total_spawns</th><td>2</td></tr>
+  <tr><th>avg_fanout_per_parent</th><td>2.0</td></tr>
+  <tr><th>max_depth</th><td>1</td></tr>
+</table>
+
+<h2>collect — mock</h2>
+<p class="narrative">Source: <code>.plan\benchmarks\20260414_080734_collect_mock.json</code> · Window: <code>2026-04-14T07:52:33.982385+00:00</code> → <code>2026-04-14T08:07:33.982385+00:00</code></p>
+
+<h3>LLM latency (ms)</h3>
+<p class="narrative">LLM 首 token + 总耗时延迟分布。回答面试官'长尾抖动'问题的原始数据。</p>
+<canvas id="chart_llm_2"></canvas>
+
+<h3>Token cost by model</h3>
+<p class="narrative">每次调用的 token 消耗与 USD 成本，汇总到 run / scenario 层。是成本敏感度叙事的硬数据。</p>
+<canvas id="chart_cost_2"></canvas>
+
+<h3>Tool round-trip</h3>
+<p class="narrative">各 built-in tool 的往返延迟与失败率，指出工具层瓶颈。</p>
+<canvas id="chart_tool_2"></canvas>
+
+<h3>Compact stats</h3>
+<p class="narrative">micro / auto / reactive 三档触发频次与压缩比，证明 compact 策略有效。</p>
+<canvas id="chart_compact_2"></canvas>
+
+<h3>Sub-agent fanout</h3>
+<p class="narrative">coordinator spawns 的并发峰值 / 递归深度 / 平均扇出，展示多 agent 差异化能力。</p>
+<table>
+  <tr><th>max_concurrent</th><td>0</td></tr>
+  <tr><th>total_spawns</th><td>0</td></tr>
+  <tr><th>avg_fanout_per_parent</th><td>0.0</td></tr>
+  <tr><th>max_depth</th><td>0</td></tr>
+</table>
+
+
+<script>
+const SNAPSHOTS = [{"scenario": "collect", "provider": "any", "since": "2026-04-13T07:53:16.117167+00:00", "until": "2026-04-14T07:53:16.117167+00:00", "project_id": null, "run_id": null, "dimensions": {"llm_latency": {"count": 36, "mean_ms": 5519.388888888889, "p50_ms": 4200.5, "p95_ms": 14470.25, "p99_ms": 49487.59999999993, "by_provider": {"openai_compat": {"count": 36, "mean_ms": 5519.388888888889, "p95_ms": 14470.25}}, "by_model": {"gpt-5.4": {"count": 36, "mean_ms": 5519.388888888889, "p95_ms": 14470.25}}}, "token_cost": {"calls": 36, "input_tokens": 6441, "output_tokens": 827, "cache_read_tokens": 0, "cost_usd": 0.0, "missing_pricing_calls": 36, "by_model": {"gpt-5.4": {"calls": 36, "input_tokens": 6441, "output_tokens": 827, "cost_usd": 0.0}}}, "tool_rtt": {"count": 2, "failure_rate": 0.0, "by_tool": {"spawn_agent": {"count": 2, "failures": 0, "failure_rate": 0.0, "mean_ms": 24.0, "p50_ms": 24.0, "p95_ms": 33.0}}}, "rag_latency": {"count": 0, "failures": 0, "failure_rate": 0.0, "mean_ms": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "share_of_tool_ms": 0.0, "all_tools_total_count": 2}, "compact_stats": {"count": 0, "by_trigger": {}}, "subagent_fanout": {"max_concurrent": 2, "total_spawns": 2, "avg_fanout_per_parent": 2.0, "max_depth": 1, "max_depth_note": "heuristic: 0/1/2 via spawn chain existence; full recursive depth not computed (requires parent_turn_id walk)."}}, "extra": {}, "_source": ".plan\\benchmarks\\20260414_075316_collect_any.json"}, {"scenario": "collect", "provider": "mock", "since": "2026-04-14T07:52:33.982385+00:00", "until": "2026-04-14T08:07:33.982385+00:00", "project_id": null, "run_id": null, "dimensions": {"llm_latency": {"count": 20, "mean_ms": 11.45, "p50_ms": 8.0, "p95_ms": 24.550000000000008, "p99_ms": 32.90999999999998, "by_provider": {"openai_compat": {"count": 20, "mean_ms": 11.45, "p95_ms": 24.550000000000008}}, "by_model": {"gpt-5.4": {"count": 20, "mean_ms": 11.45, "p95_ms": 24.550000000000008}}}, "token_cost": {"calls": 20, "input_tokens": 200, "output_tokens": 1000, "cache_read_tokens": 0, "cost_usd": 0.010499999999999999, "missing_pricing_calls": 0, "by_model": {"gpt-5.4": {"calls": 20, "input_tokens": 200, "output_tokens": 1000, "cost_usd": 0.010499999999999999}}}, "tool_rtt": {"count": 0, "failure_rate": 0.0, "by_tool": {}}, "rag_latency": {"count": 0, "failures": 0, "failure_rate": 0.0, "mean_ms": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "share_of_tool_ms": 0.0, "all_tools_total_count": 0}, "compact_stats": {"count": 0, "by_trigger": {}}, "subagent_fanout": {"max_concurrent": 0, "total_spawns": 0, "avg_fanout_per_parent": 0.0, "max_depth": 0, "max_depth_note": "heuristic: 0/1/2 via spawn chain existence; full recursive depth not computed (requires parent_turn_id walk)."}}, "extra": {}, "_source": ".plan\\benchmarks\\20260414_080734_collect_mock.json"}];
+SNAPSHOTS.forEach((snap, i) => {
+  const idx = i + 1;
+  const llm = snap.dimensions.llm_latency;
+  new Chart(document.getElementById(`chart_llm_${idx}`), {
+    type: "bar",
+    data: {
+      labels: ["p50", "p95", "p99", "mean"],
+      datasets: [{
+        label: "latency (ms)",
+        data: [llm.p50_ms, llm.p95_ms, llm.p99_ms, llm.mean_ms],
+        backgroundColor: "#4a90e2",
+      }],
+    },
+  });
+  const cost = snap.dimensions.token_cost.by_model;
+  new Chart(document.getElementById(`chart_cost_${idx}`), {
+    type: "bar",
+    data: {
+      labels: Object.keys(cost),
+      datasets: [{
+        label: "cost_usd",
+        data: Object.values(cost).map(m => m.cost_usd),
+        backgroundColor: "#f5a623",
+      }],
+    },
+  });
+  const tools = snap.dimensions.tool_rtt.by_tool;
+  new Chart(document.getElementById(`chart_tool_${idx}`), {
+    type: "bar",
+    data: {
+      labels: Object.keys(tools),
+      datasets: [
+        { label: "p50_ms", data: Object.values(tools).map(t => t.p50_ms),
+          backgroundColor: "#7ed321" },
+        { label: "p95_ms", data: Object.values(tools).map(t => t.p95_ms),
+          backgroundColor: "#bd10e0" },
+      ],
+    },
+  });
+  const cmp = snap.dimensions.compact_stats.by_trigger;
+  new Chart(document.getElementById(`chart_compact_${idx}`), {
+    type: "bar",
+    data: {
+      labels: Object.keys(cmp),
+      datasets: [
+        { label: "mean_before", data: Object.values(cmp).map(c => c.mean_before),
+          backgroundColor: "#50e3c2" },
+        { label: "mean_after", data: Object.values(cmp).map(c => c.mean_after),
+          backgroundColor: "#9013fe" },
+      ],
+    },
+  });
+});
+</script>
+</body>
+</html>

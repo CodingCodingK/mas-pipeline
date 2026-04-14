@@ -57,3 +57,21 @@ models:
     input_usd_per_1k_tokens: 0.0004
     output_usd_per_1k_tokens: 0.0012
     cache_read_discount_factor: 0.4
+
+  # ── OpenAI-compatible proxy (number pool) ──────────────
+  # Provider label used by the adapter when talking to an openai-compatible
+  # endpoint. Real upstream model may vary; these are pool sticker prices.
+  "openai_compat/gpt-5.4":
+    input_usd_per_1k_tokens: 0.0025
+    output_usd_per_1k_tokens: 0.010
+    cache_read_discount_factor: 0.5
+  "openai_compat/gpt-5.4-mini":
+    input_usd_per_1k_tokens: 0.00015
+    output_usd_per_1k_tokens: 0.0006
+    cache_read_discount_factor: 0.5
+  # Mock LLM used by scripts/test_e2e_smoke.py and scripts/bench/run_bench.py
+  # (--provider mock). Zero cost so benchmark baselines can be compared cleanly.
+  "mock/mock-llm":
+    input_usd_per_1k_tokens: 0.0
+    output_usd_per_1k_tokens: 0.0
+    cache_read_discount_factor: 1.0
