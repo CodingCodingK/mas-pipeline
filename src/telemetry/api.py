@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from src.api.auth import require_api_key
 from src.telemetry import get_collector
 from src.telemetry.query import (
+    get_project_aggregate,
     get_project_cost,
     get_project_trends,
     get_run_agents,
@@ -27,6 +28,8 @@ from src.telemetry.query import (
     get_session_summary,
     get_session_timeline,
     get_session_tree,
+    list_project_sessions,
+    list_project_turns,
 )
 
 logger = logging.getLogger(__name__)
@@ -140,6 +143,66 @@ async def project_trends(
     to: datetime | None = Query(default=None),
 ) -> dict[str, Any]:
     return await get_project_trends(project_id=project_id, from_=from_, to_=to)
+
+
+# ── Observability Tab (project-scoped lists) ─────────────
+
+
+async def _assert_project_exists(project_id: int) -> None:
+    """404 if project_id is supplied but no matching project row exists."""
+    from sqlalchemy import text as _text
+    from src.db import get_session_factory
+
+    factory = get_session_factory()
+    async with factory() as session:
+        result = await session.execute(
+            _text("SELECT 1 FROM projects WHERE id = :pid"),
+            {"pid": project_id},
+        )
+        if result.first() is None:
+            raise HTTPException(status_code=404, detail="project not found")
+
+
+@router.get("/sessions")
+async def observability_sessions(
+    project_id: int | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[dict[str, Any]]:
+    """List chat sessions; when ``project_id`` is omitted, returns all."""
+    if project_id is not None:
+        await _assert_project_exists(project_id)
+    return await list_project_sessions(
+        project_id=project_id, limit=limit, offset=offset
+    )
+
+
+@router.get("/aggregate")
+async def observability_aggregate(
+    project_id: int | None = Query(default=None),
+    window: str = Query(default="24h", pattern="^(24h|7d|30d)$"),
+) -> dict[str, Any]:
+    """Bucketed aggregate for the Observability Tab Aggregates sub-tab."""
+    if project_id is not None:
+        await _assert_project_exists(project_id)
+    return await get_project_aggregate(project_id=project_id, window=window)
+
+
+@router.get("/turns")
+async def observability_turns(
+    project_id: int | None = Query(default=None),
+    role: str | None = Query(default=None),
+    status: str | None = Query(
+        default=None, pattern="^(done|interrupt|error|idle_exit)$"
+    ),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[dict[str, Any]]:
+    """Recent agent_turn events with role/status filters."""
+    if project_id is not None:
+        await _assert_project_exists(project_id)
+    return await list_project_turns(
+        project_id=project_id, role=role, status=status, limit=limit
+    )
 
 
 # ── Admin ────────────────────────────────────────────────

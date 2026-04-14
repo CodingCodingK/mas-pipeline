@@ -472,3 +472,205 @@ async def get_project_trends(
         "tokens": series_tokens,
         "cost": series_cost,
     }
+
+
+# ── Observability Tab queries ─────────────────────────────
+# The web Observability Tab needs project-scoped list/aggregate endpoints
+# that the existing per-run / per-session queries don't cover. These
+# three functions back `/telemetry/sessions`, `/telemetry/aggregate`, and
+# `/telemetry/turns` respectively.
+
+
+async def list_project_sessions(
+    project_id: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """List chat_sessions optionally filtered by project_id, newest first."""
+    clauses: list[str] = []
+    params: dict[str, Any] = {"limit": limit, "offset": offset}
+    if project_id is not None:
+        clauses.append("project_id = :project_id")
+        params["project_id"] = project_id
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    sql = (
+        "SELECT id, session_key, channel, chat_id, project_id, mode, status, "
+        "created_at, last_active_at FROM chat_sessions"
+        f"{where} ORDER BY last_active_at DESC LIMIT :limit OFFSET :offset"
+    )
+    factory = get_session_factory()
+    async with factory() as session:
+        result = await session.execute(text(sql), params)
+        rows = result.mappings().all()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        d = dict(r)
+        for k in ("created_at", "last_active_at"):
+            if isinstance(d.get(k), datetime):
+                d[k] = d[k].isoformat()
+        out.append(d)
+    return out
+
+
+async def get_project_aggregate(
+    project_id: int | None = None,
+    window: str = "24h",
+) -> dict[str, Any]:
+    """Bucketed aggregates for the Observability Tab Aggregates sub-tab.
+
+    Windows:
+        24h → hourly buckets (24 bins)
+        7d  → daily buckets (7 bins)
+        30d → daily buckets (30 bins)
+
+    Returns four series with aligned bucket keys:
+        - cost_over_time      [{bucket, cost_usd}]
+        - tokens_over_time    [{bucket, input_tokens, output_tokens, cache_tokens}]
+        - turns_by_status     [{bucket, done, interrupt, error, idle_exit}]
+        - error_rate          [{bucket, ratio}]
+    """
+    if window not in ("24h", "7d", "30d"):
+        raise ValueError(f"invalid window: {window!r}")
+
+    bucket_fmt = "%Y-%m-%d %H:00" if window == "24h" else "%Y-%m-%d"
+    hours_back = {"24h": 24, "7d": 24 * 7, "30d": 24 * 30}[window]
+    from datetime import timedelta, timezone
+    since = datetime.now(timezone.utc) - timedelta(hours=hours_back)
+
+    clauses = [
+        "ts >= :since",
+        "event_type IN ('llm_call','agent_turn','error')",
+    ]
+    params: dict[str, Any] = {"since": since}
+    if project_id is not None:
+        clauses.append("project_id = :project_id")
+        params["project_id"] = project_id
+
+    sql = (
+        "SELECT ts, event_type, payload FROM telemetry_events "
+        f"WHERE {' AND '.join(clauses)} ORDER BY ts ASC"
+    )
+    factory = get_session_factory()
+    async with factory() as session:
+        result = await session.execute(text(sql), params)
+        rows = [dict(r) for r in result.mappings().all()]
+
+    from collections import defaultdict as _dd
+
+    cost_b: dict[str, float] = _dd(float)
+    tok_in: dict[str, int] = _dd(int)
+    tok_out: dict[str, int] = _dd(int)
+    tok_cache: dict[str, int] = _dd(int)
+    status_b: dict[str, dict[str, int]] = _dd(lambda: {"done": 0, "interrupt": 0, "error": 0, "idle_exit": 0})
+    turn_count: dict[str, int] = _dd(int)
+    err_count: dict[str, int] = _dd(int)
+
+    for r in rows:
+        ts = r["ts"]
+        if not isinstance(ts, datetime):
+            continue
+        key = ts.strftime(bucket_fmt)
+        p = r.get("payload") or {}
+        etype = r["event_type"]
+        if etype == "llm_call":
+            if p.get("cost_usd") is not None:
+                cost_b[key] += float(p["cost_usd"])
+            tok_in[key] += int(p.get("input_tokens") or 0)
+            tok_out[key] += int(p.get("output_tokens") or 0)
+            tok_cache[key] += int(p.get("cache_read_tokens") or 0)
+        elif etype == "agent_turn":
+            turn_count[key] += 1
+            stop = p.get("stop_reason") or "done"
+            if stop in status_b[key]:
+                status_b[key][stop] += 1
+            else:
+                status_b[key]["done"] += 1
+        elif etype == "error":
+            err_count[key] += 1
+
+    all_keys = sorted(set(cost_b) | set(tok_in) | set(status_b) | set(err_count))
+
+    cost_over_time = [{"bucket": k, "cost_usd": round(cost_b[k], 6)} for k in all_keys]
+    tokens_over_time = [
+        {
+            "bucket": k,
+            "input_tokens": tok_in[k],
+            "output_tokens": tok_out[k],
+            "cache_tokens": tok_cache[k],
+        }
+        for k in all_keys
+    ]
+    turns_by_status = [
+        {"bucket": k, **status_b[k]} for k in all_keys
+    ]
+    error_rate = [
+        {
+            "bucket": k,
+            "ratio": (err_count[k] / turn_count[k]) if turn_count[k] else 0.0,
+        }
+        for k in all_keys
+    ]
+
+    return {
+        "window": window,
+        "project_id": project_id,
+        "cost_over_time": cost_over_time,
+        "tokens_over_time": tokens_over_time,
+        "turns_by_status": turns_by_status,
+        "error_rate": error_rate,
+    }
+
+
+async def list_project_turns(
+    project_id: int | None = None,
+    role: str | None = None,
+    status: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Flat list of recent agent_turn events, newest first.
+
+    Filters:
+        project_id — restrict to one project
+        role       — filter by telemetry_events.agent_role
+        status     — filter by payload.stop_reason (done/interrupt/error/idle_exit)
+    """
+    clauses = ["event_type = 'agent_turn'"]
+    params: dict[str, Any] = {"limit": limit}
+    if project_id is not None:
+        clauses.append("project_id = :project_id")
+        params["project_id"] = project_id
+    if role is not None:
+        clauses.append("agent_role = :role")
+        params["role"] = role
+    if status is not None:
+        clauses.append("(payload->>'stop_reason') = :status")
+        params["status"] = status
+
+    sql = (
+        "SELECT ts, project_id, run_id, session_id, agent_role, payload "
+        "FROM telemetry_events "
+        f"WHERE {' AND '.join(clauses)} "
+        "ORDER BY ts DESC LIMIT :limit"
+    )
+    factory = get_session_factory()
+    async with factory() as session:
+        result = await session.execute(text(sql), params)
+        rows = [dict(r) for r in result.mappings().all()]
+
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        p = r.get("payload") or {}
+        out.append({
+            "ts": r["ts"].isoformat() if isinstance(r["ts"], datetime) else None,
+            "project_id": r.get("project_id"),
+            "run_id": r.get("run_id"),
+            "session_id": r.get("session_id"),
+            "agent_role": r.get("agent_role"),
+            "stop_reason": p.get("stop_reason"),
+            "duration_ms": p.get("duration_ms"),
+            "input_tokens": p.get("input_tokens"),
+            "output_tokens": p.get("output_tokens"),
+            "input_preview": p.get("input_preview"),
+            "output_preview": p.get("output_preview"),
+        })
+    return out

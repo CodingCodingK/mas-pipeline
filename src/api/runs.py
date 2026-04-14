@@ -9,7 +9,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from html import escape as html_escape
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 
 from src.api.auth import require_api_key
@@ -46,7 +47,43 @@ class TriggerRunResponse(BaseModel):
 
 
 class ResumeBody(BaseModel):
+    """Accepts two resume shapes:
+
+    1. Legacy bare-string: ``{"value": "feedback text"}`` — treated as an
+       approve-with-comment. The engine's ``interrupt_fn`` silently drops
+       the comment on approve, so this is effectively a plain approve.
+    2. Structured: ``{"value": {"action": "approve"|"reject"|"edit",
+       "feedback"?: str, "edited"?: str}}``. ``action=edit`` requires a
+       non-empty ``edited`` field; validation below raises 422 otherwise.
+
+    The API layer validates only the shape — semantic enforcement (e.g.
+    ignoring ``feedback`` on approve) happens in ``_make_interrupt_fn``.
+    """
+
     value: Any = None
+
+    @field_validator("value")
+    @classmethod
+    def _validate_value(cls, v: Any) -> Any:
+        if v is None or isinstance(v, str):
+            return v
+        if not isinstance(v, dict):
+            raise ValueError(
+                "value must be a string (legacy) or an object "
+                "{action, feedback?, edited?}"
+            )
+        action = v.get("action", "approve")
+        if action not in {"approve", "reject", "edit"}:
+            raise ValueError(
+                f"action must be one of approve/reject/edit, got {action!r}"
+            )
+        if action == "edit":
+            edited = v.get("edited", "")
+            if not isinstance(edited, str) or not edited.strip():
+                raise ValueError(
+                    "action=edit requires a non-empty 'edited' string field"
+                )
+        return v
 
 
 class StatusResponse(BaseModel):
@@ -282,6 +319,42 @@ async def resume_run(run_id: str, body: ResumeBody) -> StatusResponse:
     return StatusResponse(run_id=run.run_id, status="resumed")
 
 
+@router.post("/runs/{run_id}/pause", status_code=202)
+async def pause_run(run_id: str) -> StatusResponse:
+    """Request a running pipeline to pause at the next safe point.
+
+    Flips the workflow row to ``paused`` and sets the shared abort_signal
+    so in-flight LangGraph nodes can observe it on their next abort check.
+    Idempotent against a run that is already paused. Note: an LLM call
+    currently in-flight on a node runs to completion before the engine
+    re-reads the signal — pause latency can be up to the node's turn.
+    """
+    run = await get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    if run.status == RunStatus.PAUSED.value:
+        return StatusResponse(run_id=run.run_id, status="paused")
+
+    if run.status != RunStatus.RUNNING.value:
+        raise HTTPException(
+            status_code=409,
+            detail=f"run is not running (current status: {run.status})",
+        )
+
+    signal = get_abort_signal(run.run_id)
+    if signal is not None:
+        signal.set()
+
+    try:
+        await update_run_status(run.run_id, RunStatus.PAUSED)
+    except Exception:
+        logger.exception("Failed to mark run %s paused", run.run_id)
+        raise HTTPException(status_code=500, detail="failed to transition run state")
+
+    return StatusResponse(run_id=run.run_id, status="paused")
+
+
 @router.post("/runs/{run_id}/cancel", status_code=202)
 async def cancel_run(run_id: str) -> StatusResponse:
     run = await get_run(run_id)
@@ -324,6 +397,212 @@ async def get_run_detail(run_id: str) -> RunDetail:
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
     return _to_detail(run)
+
+
+class GraphNode(BaseModel):
+    id: str
+    name: str
+    role: str
+    status: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    output_preview: str | None = None
+
+
+class GraphEdge(BaseModel):
+    from_: str
+    to: str
+    kind: str = "sequence"
+
+    model_config = {"populate_by_name": True}
+
+    def model_dump(self, **kwargs):
+        d = super().model_dump(**kwargs)
+        d["from"] = d.pop("from_")
+        return d
+
+
+class RunGraphResponse(BaseModel):
+    run_id: str
+    pipeline: str | None
+    status: str
+    nodes: list[GraphNode]
+    edges: list[dict]
+
+
+def _map_node_status(
+    agent_row_status: str | None,
+    paused_at_node: str | None,
+    this_node_name: str,
+) -> str:
+    """Map an agent_runs row status into the closed DAG status set.
+
+    Paused-at-interrupt: if the pipeline's metadata.paused_at matches this
+    node and the row is completed, upgrade the status to 'paused' (the run
+    is held at this node's interrupt node awaiting human review).
+    """
+    if agent_row_status is None:
+        return "idle"
+    if paused_at_node == this_node_name and agent_row_status == "completed":
+        return "paused"
+    mapping = {
+        "pending": "idle",
+        "running": "running",
+        "completed": "completed",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "skipped": "skipped",
+        "timeout": "failed",
+    }
+    return mapping.get(agent_row_status, "idle")
+
+
+@router.get("/runs/{run_id}/graph")
+async def get_run_graph(run_id: str) -> dict:
+    """Return the pipeline DAG joined with live agent_runs state.
+
+    Pure read: no DB writes, no in-memory state mutation. Pipeline topology
+    comes from the YAML on disk; per-node status comes from the agent_runs
+    rows for this workflow_run. Nodes whose YAML definition has no matching
+    row are reported as 'idle'.
+    """
+    run = await get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    if run.pipeline is None:
+        raise HTTPException(status_code=409, detail="run has no pipeline associated")
+
+    try:
+        yaml_path = resolve_pipeline_file(run.pipeline, run.project_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail=f"pipeline YAML unreadable: {exc}")
+
+    from src.engine.pipeline import load_pipeline
+    try:
+        pipeline_def = load_pipeline(str(yaml_path))
+    except Exception as exc:
+        logger.exception("Failed to load pipeline for graph endpoint")
+        raise HTTPException(status_code=500, detail=f"pipeline parse error: {exc}")
+
+    agent_rows = await list_agent_runs(run.id)
+    # owner is formatted as "{run_id_str}:{role}" for pipeline nodes; we
+    # prefer matching by role since each pipeline node has a unique role.
+    # Fall back: last row wins if multiple rows share the same role.
+    by_role: dict[str, AgentRun] = {}
+    for row in agent_rows:
+        by_role[row.role] = row
+
+    meta = run.metadata_ or {}
+    outputs = meta.get("outputs", {}) or {}
+    paused_at = meta.get("paused_at")
+
+    nodes_out: list[GraphNode] = []
+    for node in pipeline_def.nodes:
+        row = by_role.get(node.role)
+        status = _map_node_status(
+            row.status if row else None, paused_at, node.name
+        )
+        preview: str | None = None
+        raw_output = outputs.get(node.output)
+        if isinstance(raw_output, str) and raw_output:
+            preview = html_escape(raw_output)[:200]
+        nodes_out.append(
+            GraphNode(
+                id=node.name,
+                name=node.name,
+                role=node.role,
+                status=status,
+                started_at=(str(row.created_at) if row and row.created_at else None),
+                finished_at=(
+                    str(row.updated_at)
+                    if row and row.updated_at and row.status
+                    in ("completed", "failed", "cancelled")
+                    else None
+                ),
+                output_preview=preview,
+            )
+        )
+
+    edges_out: list[dict] = []
+    for node in pipeline_def.nodes:
+        for upstream_name in pipeline_def.dependencies.get(node.name, set()):
+            edges_out.append({"from": upstream_name, "to": node.name, "kind": "sequence"})
+        for route in node.routes or []:
+            edges_out.append({
+                "from": node.name,
+                "to": route.target,
+                "kind": "conditional",
+            })
+
+    return {
+        "run_id": run.run_id,
+        "pipeline": run.pipeline,
+        "status": run.status,
+        "nodes": [n.model_dump() for n in nodes_out],
+        "edges": edges_out,
+    }
+
+
+@router.get("/runs/{run_id}/events")
+async def stream_run_events(run_id: str):
+    """Standalone SSE endpoint for attaching to an already-running or paused
+    pipeline. The initial trigger endpoint emits events only for its own
+    request lifecycle; this endpoint lets the UI re-attach after navigation
+    or after a resume transitions the run from paused → running again.
+
+    The stream stays open until the run reaches a terminal state
+    (pipeline_end or pipeline_failed). Heartbeats are sent every 15s so
+    proxies don't idle-close the connection.
+    """
+    run = await get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    terminal_db = (
+        RunStatus.COMPLETED.value,
+        RunStatus.FAILED.value,
+        RunStatus.CANCELLED.value,
+    )
+    if run.status in terminal_db:
+        async def _immediate():
+            yield (
+                f"event: terminal\n"
+                f"data: {json.dumps({'run_id': run.run_id, 'status': run.status})}\n\n"
+            )
+        return StreamingResponse(_immediate(), media_type="text/event-stream")
+
+    queue = subscribe_pipeline_events(run.run_id)
+
+    async def event_stream():
+        from src.api.metrics import sse_connect, sse_disconnect
+        sse_connect()
+        terminal_types = {"pipeline_end", "pipeline_failed"}
+        try:
+            yield (
+                f"event: attached\n"
+                f"data: {json.dumps({'run_id': run.run_id, 'status': run.status})}\n\n"
+            )
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+                    continue
+                payload = json.dumps(
+                    {"run_id": run.run_id, **event}, ensure_ascii=False
+                )
+                yield f"event: {event.get('type', 'message')}\ndata: {payload}\n\n"
+                if event.get("type") in terminal_types:
+                    return
+        finally:
+            unsubscribe_pipeline_events(run.run_id, queue)
+            sse_disconnect()
+
+    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    return StreamingResponse(
+        event_stream(), media_type="text/event-stream", headers=headers
+    )
 
 
 @router.get("/runs/{run_id}/export")
