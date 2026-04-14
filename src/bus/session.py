@@ -37,7 +37,7 @@ async def resolve_session(
     The `mode` parameter is ONLY used at creation time. If a session already
     exists, its stored mode is returned unchanged.
     """
-    if mode not in ("chat", "autonomous"):
+    if mode not in ("chat", "autonomous", "bus_chat"):
         raise ValueError(f"invalid session mode: {mode!r}")
 
     redis = get_redis()

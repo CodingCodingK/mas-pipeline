@@ -144,6 +144,8 @@ class ChatSession(Base):
     chat_id: Mapped[str] = mapped_column(String(255), nullable=False)
     project_id: Mapped[int] = mapped_column(Integer, nullable=False)
     conversation_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Allowed values: "chat" (1:1 assistant), "autonomous" (coordinator),
+    # "bus_chat" (third-party group chat clawbot).
     mode: Mapped[str] = mapped_column(String(20), nullable=False, default="chat")
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
     status: Mapped[str] = mapped_column(String(50), default="active")

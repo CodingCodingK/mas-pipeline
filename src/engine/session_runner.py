@@ -33,6 +33,7 @@ _SUBSCRIBER_QUEUE_MAX = 100
 _MODE_TO_ROLE = {
     "chat": "assistant",
     "autonomous": "coordinator",
+    "bus_chat": "clawbot",
 }
 
 
@@ -68,6 +69,7 @@ class SessionRunner:
         self._pg_synced_count = 0  # how many PG messages we've synced
         self._system_prefix_len = 0  # state.messages entries before PG history
         self._channel: str | None = None  # captured during start() from ChatSession
+        self._clawbot_chat_id: str | None = None  # clawbot-only, set in start()
         self.mcp_manager = None  # MCPManager — instantiated in start(), shut down in _main_loop finally
 
         get_collector().record_session_event(
@@ -115,15 +117,41 @@ class SessionRunner:
         # Load history from PG before constructing the agent
         history = await get_session_history(self.conversation_id)
 
-        self.state = await create_agent(
-            role=role,
-            task_description="",  # history-driven; no fresh task injection
-            project_id=self.project_id,
-            run_id=f"session-{self.session_id}",
-            permission_mode=PermissionMode.NORMAL,
-            abort_signal=asyncio.Event(),
-            mcp_manager=self.mcp_manager,
-        )
+        if role == "clawbot":
+            # Local import avoids a src.clawbot → src.engine cycle.
+            from src.clawbot.factory import create_clawbot_agent
+            from src.db import get_db as _get_db
+            from src.models import ChatSession as _ChatSession
+
+            async with _get_db() as _db:
+                _cs = await _db.get(_ChatSession, self.session_id)
+            if _cs is None:
+                raise RuntimeError(
+                    f"SessionRunner {self.session_id}: ChatSession row missing"
+                )
+            self._channel = _cs.channel
+            self._clawbot_chat_id = _cs.chat_id
+
+            self.state = await create_clawbot_agent(
+                task_description="",
+                project_id=self.project_id,
+                run_id=f"session-{self.session_id}",
+                channel=_cs.channel,
+                chat_id=_cs.chat_id,
+                permission_mode=PermissionMode.NORMAL,
+                abort_signal=asyncio.Event(),
+                mcp_manager=self.mcp_manager,
+            )
+        else:
+            self.state = await create_agent(
+                role=role,
+                task_description="",  # history-driven; no fresh task injection
+                project_id=self.project_id,
+                run_id=f"session-{self.session_id}",
+                permission_mode=PermissionMode.NORMAL,
+                abort_signal=asyncio.Event(),
+                mcp_manager=self.mcp_manager,
+            )
 
         # Replace factory-injected boilerplate user message with real history.
         # create_agent always emits [system, user(task_description)] — drop the
@@ -259,6 +287,7 @@ class SessionRunner:
                 # message with a <recalled_memories> prefix for the duration
                 # of the turn, restore it afterwards so nothing persists.
                 recall_restore = await self._overlay_recalled_memories()
+                pending_restore = self._overlay_clawbot_pending()
 
                 # Drive agent_loop inside a telemetry turn context
                 input_preview = self._latest_user_preview()
@@ -281,6 +310,8 @@ class SessionRunner:
                         if self.state is not None and self.state.exit_reason is not None:
                             turn_capture["stop_reason"] = self.state.exit_reason.value
                 finally:
+                    if pending_restore is not None:
+                        pending_restore()
                     if recall_restore is not None:
                         recall_restore()
 
@@ -337,6 +368,51 @@ class SessionRunner:
             )
             await deregister(self.session_id)
             logger.info("SessionRunner %d exited (%s)", self.session_id, exit_reason_kind)
+
+    def _overlay_clawbot_pending(self):
+        """Clawbot per-turn overlay: if a pending_run exists for this session,
+        prepend the `[Pending Run Awaiting Confirmation]` block to the last
+        user message so the LLM sees the current intent and can route
+        confirm/cancel/restart decisions. Returns a restore callback (or None
+        for non-clawbot sessions / no pending)."""
+        if self.mode != "bus_chat":
+            return None
+        if self.state is None or not self.state.messages:
+            return None
+        if self._channel is None or self._clawbot_chat_id is None:
+            return None
+
+        from src.clawbot.prompt import format_pending_block
+        from src.clawbot.session_state import get_pending_store
+
+        session_key = f"{self._channel}:{self._clawbot_chat_id}"
+        pending = get_pending_store().get_pending(session_key)
+        if pending is None:
+            return None
+
+        last_user_idx: int | None = None
+        for idx in range(len(self.state.messages) - 1, -1, -1):
+            if self.state.messages[idx].get("role") == "user":
+                last_user_idx = idx
+                break
+        if last_user_idx is None:
+            return None
+
+        original_msg = self.state.messages[last_user_idx]
+        original_content = original_msg.get("content")
+        if not isinstance(original_content, str):
+            return None
+
+        block = format_pending_block(pending.summary())
+        original_msg["content"] = f"{block}\n\n{original_content}"
+
+        def _restore() -> None:
+            if self.state is None:
+                return
+            if last_user_idx < len(self.state.messages):
+                self.state.messages[last_user_idx]["content"] = original_content
+
+        return _restore
 
     async def _overlay_recalled_memories(self):
         """Path B of the CC-style two-path memory recall.
