@@ -1,5 +1,7 @@
 # mas-pipeline
 
+**English** | [中文](README.zh-CN.md)
+
 > **Status: v0.1 — MVP (2026-04-14)** · free, open-source, primarily a learning project · docker stack + REST + Web UI + group-chat bot wired end-to-end
 
 A configurable Multi-Agent System engine for content production pipelines. Agents are Markdown files, pipelines are YAML DAGs, and the same workflow runs three ways — as a batch pipeline, as a chat session, or from a group-chat bot — with no per-front-end glue code.
