@@ -11,6 +11,7 @@ from src.clawbot.tools.get_run_progress import GetRunProgressTool
 from src.clawbot.tools.list_projects import ListProjectsTool
 from src.clawbot.tools.persona_edit import PersonaEditTool
 from src.clawbot.tools.persona_write import PersonaWriteTool
+from src.clawbot.tools.resume_run import ResumeRunTool
 from src.clawbot.tools.search_project_docs import SearchProjectDocsTool
 from src.clawbot.tools.start_project_run import StartProjectRunTool
 
@@ -27,6 +28,7 @@ def get_clawbot_tools() -> list:
         GetRunProgressTool(),
         PersonaWriteTool(),
         PersonaEditTool(),
+        ResumeRunTool(),
     ]
 
 
@@ -41,5 +43,6 @@ __all__ = [
     "GetRunProgressTool",
     "PersonaWriteTool",
     "PersonaEditTool",
+    "ResumeRunTool",
     "get_clawbot_tools",
 ]

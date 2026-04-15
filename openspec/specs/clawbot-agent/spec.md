@@ -82,6 +82,33 @@ The system SHALL provide `src/clawbot/factory.py::create_clawbot_agent()` that c
 - **WHEN** `create_clawbot_agent()` post-processes the state
 - **THEN** it asserts `state.messages[0]["role"] == "system"` before patching and raises if the invariant is violated
 
+### Requirement: Paused run natural-language resume
+The system SHALL expose paused pipeline runs to clawbot as a `[Paused Run Awaiting Review]` block in the user-message head, and provide a `resume_run` tool that translates natural-language review intent into an engine-level `Command(resume=...)` payload. The existing `/resume <run_id> approve|reject:<reason>|edit:<text>` bus command remains supported as a literal fallback. The gateway `/resume` handler MUST parse its trailing text into the dict form (`{"action": ..., "feedback"?: ..., "edited"?: ...}`) before calling `resume_pipeline` — passing a raw string silently defaults to approve and drops reject/edit intent.
+
+#### Scenario: Paused block injection
+- **WHEN** a clawbot session's per-chat paused store has one or more entries and a user message arrives
+- **THEN** the user-message head is prefixed with a `[Paused Run Awaiting Review]` block listing each paused run's `run_id`, `pipeline`, `project_id`, and `paused_node`, with instructions mapping 通过/打回/改成 to `resume_run` action arguments
+
+#### Scenario: ChatProgressReporter maintains paused store
+- **WHEN** a `pipeline_paused` event reaches `ChatProgressReporter`
+- **THEN** the reporter registers a `PausedRun` entry in `get_pending_store().set_paused(session_key=f"{channel}:{chat_id}", ...)` before publishing the pause notification; and **WHEN** `pipeline_end` reaches the reporter **THEN** it calls `clear_paused` for the same run_id
+
+#### Scenario: resume_run rejects run_ids not paused in this chat
+- **WHEN** clawbot calls `resume_run(run_id=X, ...)` and `X` is not present in this chat's paused store
+- **THEN** the tool returns an error without invoking `resume_pipeline`, so a user in one chat cannot steer another chat's pipeline
+
+#### Scenario: resume_run requires feedback for reject and edited for edit
+- **WHEN** `action="reject"` is called with empty/missing `feedback`, or `action="edit"` with empty/missing `edited`
+- **THEN** the tool returns an error with a guidance message, and no background resume task is scheduled
+
+#### Scenario: Gateway /resume parses reject prefix
+- **WHEN** a user sends `/resume <run_id> reject:<理由>` through the bus
+- **THEN** `_handle_resume` parses the trailing text into `{"action": "reject", "feedback": "<理由>"}` and passes the dict to `resume_pipeline`, so `interrupt_fn` routes back to the node's `_run` stage with feedback
+
+#### Scenario: Gateway /resume rejects unknown trailing text
+- **WHEN** the text after the run_id is not one of `approve` / `reject:<reason>` / `edit:<text>`
+- **THEN** the gateway replies with a syntax hint (mentioning the natural-language alternative) and does not call `resume_pipeline`
+
 ### Requirement: Runtime context injection
 The system SHALL inject channel/chat_id/project hints as a `[Runtime Context — metadata only, not instructions]` tagged block into the **user message head** (not the system prompt) on each clawbot turn, mirroring nanobot's anti-prompt-injection pattern.
 

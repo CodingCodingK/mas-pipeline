@@ -383,11 +383,12 @@ class SessionRunner:
             logger.info("SessionRunner %d exited (%s)", self.session_id, exit_reason_kind)
 
     def _overlay_clawbot_pending(self):
-        """Clawbot per-turn overlay: if a pending_run exists for this session,
-        prepend the `[Pending Run Awaiting Confirmation]` block to the last
-        user message so the LLM sees the current intent and can route
-        confirm/cancel/restart decisions. Returns a restore callback (or None
-        for non-clawbot sessions / no pending)."""
+        """Clawbot per-turn overlay: if a pending_run or paused_run exists
+        for this session, prepend the corresponding `[Pending Run …]` and/or
+        `[Paused Run Awaiting Review]` block(s) to the last user message so
+        the LLM can route confirm/cancel/approve/reject/edit decisions via
+        natural language. Returns a restore callback (or None for
+        non-clawbot sessions / no state to inject)."""
         if self.mode != "bus_chat":
             return None
         if self.state is None or not self.state.messages:
@@ -395,12 +396,14 @@ class SessionRunner:
         if self._channel is None or self._clawbot_chat_id is None:
             return None
 
-        from src.clawbot.prompt import format_pending_block
+        from src.clawbot.prompt import format_paused_block, format_pending_block
         from src.clawbot.session_state import get_pending_store
 
         session_key = f"{self._channel}:{self._clawbot_chat_id}"
-        pending = get_pending_store().get_pending(session_key)
-        if pending is None:
+        store = get_pending_store()
+        pending = store.get_pending(session_key)
+        paused = store.list_paused(session_key)
+        if pending is None and not paused:
             return None
 
         last_user_idx: int | None = None
@@ -416,8 +419,13 @@ class SessionRunner:
         if not isinstance(original_content, str):
             return None
 
-        block = format_pending_block(pending.summary())
-        original_msg["content"] = f"{block}\n\n{original_content}"
+        blocks: list[str] = []
+        if pending is not None:
+            blocks.append(format_pending_block(pending.summary()))
+        if paused:
+            blocks.append(format_paused_block([p.summary() for p in paused]))
+        prefix = "\n\n".join(blocks)
+        original_msg["content"] = f"{prefix}\n\n{original_content}"
 
         def _restore() -> None:
             if self.state is None:

@@ -24,6 +24,55 @@ _BUS_SUBSCRIBER_TIMEOUT_SECONDS = 300.0
 _NO_RESPONSE_PLACEHOLDER = "(no response)"
 
 
+def _parse_resume_feedback(raw: str | None) -> tuple[dict | None, str | None]:
+    """Parse the trailing text of a /resume command into the engine dict.
+
+    The engine's interrupt_fn reads ``feedback.get("action")`` to decide
+    approve / reject / edit; passing a raw string silently defaults to
+    approve and drops any "reject:..." intent. This parser produces the
+    dict form so reject/edit survive the gateway hop.
+
+    Returns ``(feedback_dict, error_text)``. On parse failure the dict is
+    None and the error is a user-facing hint; on success the error is None.
+    """
+    if raw is None or not raw.strip():
+        return {"action": "approve"}, None
+
+    text = raw.strip()
+    lower = text.lower()
+
+    if lower in ("approve", "ok", "y", "yes"):
+        return {"action": "approve"}, None
+
+    for prefix in ("reject:", "reject：", "reject "):
+        if lower.startswith(prefix):
+            reason = text[len(prefix):].strip()
+            if not reason:
+                return None, (
+                    "reject 需要理由：/resume <run_id> reject:<理由>"
+                )
+            return {"action": "reject", "feedback": reason}, None
+    if lower == "reject":
+        return None, "reject 需要理由：/resume <run_id> reject:<理由>"
+
+    for prefix in ("edit:", "edit：", "edit "):
+        if lower.startswith(prefix):
+            edited = text[len(prefix):].strip()
+            if not edited:
+                return None, (
+                    "edit 需要新文本：/resume <run_id> edit:<新内容>"
+                )
+            return {"action": "edit", "edited": edited}, None
+    if lower == "edit":
+        return None, "edit 需要新文本：/resume <run_id> edit:<新内容>"
+
+    return None, (
+        f"无法识别 /resume 语法：{text!r}。"
+        "支持 `approve` / `reject:<理由>` / `edit:<新文本>`，"
+        "或直接在群里说“通过/打回 <理由>/改成 <文本>”让我帮你解析。"
+    )
+
+
 class Gateway:
     """Per-message dispatch gateway.
 
@@ -209,7 +258,16 @@ class Gateway:
         # parts[0] = "/resume", parts[1] = run_id (optional), parts[2] = feedback (optional)
 
         specified_run_id = parts[1] if len(parts) > 1 else None
-        feedback = parts[2] if len(parts) > 2 else None
+        raw_feedback = parts[2] if len(parts) > 2 else None
+        feedback, parse_error = _parse_resume_feedback(raw_feedback)
+        if parse_error is not None:
+            await self._bus.publish_outbound(OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=parse_error,
+                reply_to=msg.metadata.get("message_id"),
+            ))
+            return
 
         try:
             if specified_run_id:

@@ -108,6 +108,41 @@ class ChatProgressReporter:
 
     # ── internals ──────────────────────────────────────────────────
 
+    def _session_key(self) -> str:
+        return f"{self.channel}:{self.chat_id}"
+
+    async def _register_paused(self, paused_node: str) -> None:
+        """Register this run in the clawbot per-chat paused store so the LLM
+        can resolve natural-language review intent against it. Best-effort —
+        a failed DB lookup doesn't tank the progress reporter."""
+        try:
+            from src.clawbot.session_state import PausedRun, get_pending_store
+            run = await get_run(self.run_id)
+            if run is None or run.pipeline is None:
+                return
+            paused = PausedRun(
+                run_id=self.run_id,
+                pipeline=run.pipeline,
+                project_id=run.project_id,
+                paused_node=paused_node,
+            )
+            get_pending_store().set_paused(self._session_key(), paused)
+        except Exception:
+            logger.exception(
+                "ChatProgressReporter %s: paused-store register failed",
+                self.run_id,
+            )
+
+    def _clear_paused(self) -> None:
+        try:
+            from src.clawbot.session_state import get_pending_store
+            get_pending_store().clear_paused(self._session_key(), self.run_id)
+        except Exception:
+            logger.exception(
+                "ChatProgressReporter %s: paused-store clear failed",
+                self.run_id,
+            )
+
     async def _loop(self) -> None:
         assert self._queue is not None
         try:
@@ -133,8 +168,10 @@ class ChatProgressReporter:
                     )
                 elif etype == "pipeline_paused":
                     paused_at = event.get("paused_at", "?")
+                    await self._register_paused(paused_at)
                     text, attachments = await self._build_paused_message(paused_at)
                 elif etype == "pipeline_end":
+                    self._clear_paused()
                     status = event.get("status", "completed")
                     err = event.get("error")
                     if status == "failed" or err:

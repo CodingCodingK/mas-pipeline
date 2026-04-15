@@ -40,11 +40,39 @@ class PendingRun:
 
 
 @dataclass
+class PausedRun:
+    """One pipeline run that's currently paused at an interrupt node.
+
+    Tracked per-chat so clawbot can resolve natural-language resume intent
+    ("打回 <理由>" / "通过") against the right run_id without the user
+    typing `/resume <id>` every time. No TTL — lifecycle is driven by
+    ChatProgressReporter seeing pipeline_end / pipeline_failed events.
+    """
+
+    run_id: str
+    pipeline: str
+    project_id: int
+    paused_node: str
+    paused_at_ts: datetime = field(default_factory=datetime.utcnow)
+
+    def summary(self) -> str:
+        age = (datetime.utcnow() - self.paused_at_ts).total_seconds()
+        return (
+            f"run_id: {self.run_id}\n"
+            f"pipeline: {self.pipeline}\n"
+            f"project_id: {self.project_id}\n"
+            f"paused_node: {self.paused_node}\n"
+            f"age_seconds: {int(age)}"
+        )
+
+
+@dataclass
 class ClawbotSession:
     """Per-session_key clawbot state."""
 
     session_key: str
     pending_run: PendingRun | None = None
+    paused_runs: dict[str, PausedRun] = field(default_factory=dict)
     _ttl_handle: asyncio.TimerHandle | None = None
 
 
@@ -99,6 +127,32 @@ class PendingRunStore:
             sess._ttl_handle.cancel()
             sess._ttl_handle = None
         return cleared
+
+    # ── paused_runs ───────────────────────────────────────────────
+
+    def set_paused(self, session_key: str, paused: PausedRun) -> None:
+        """Register a paused run for this chat. Overwrites any entry with
+        the same run_id (idempotent on repeated pipeline_paused events)."""
+        sess = self.get_session(session_key)
+        sess.paused_runs[paused.run_id] = paused
+
+    def clear_paused(self, session_key: str, run_id: str) -> PausedRun | None:
+        sess = self._sessions.get(session_key)
+        if sess is None:
+            return None
+        return sess.paused_runs.pop(run_id, None)
+
+    def list_paused(self, session_key: str) -> list[PausedRun]:
+        sess = self._sessions.get(session_key)
+        if sess is None:
+            return []
+        return list(sess.paused_runs.values())
+
+    def get_paused(self, session_key: str, run_id: str) -> PausedRun | None:
+        sess = self._sessions.get(session_key)
+        if sess is None:
+            return None
+        return sess.paused_runs.get(run_id)
 
     def _expire(self, session_key: str) -> None:
         sess = self._sessions.get(session_key)

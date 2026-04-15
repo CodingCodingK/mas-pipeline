@@ -30,6 +30,8 @@ _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
 _RUNTIME_CONTEXT_END = "[/Runtime Context]"
 _PENDING_TAG = "[Pending Run Awaiting Confirmation]"
 _PENDING_END = "[/Pending Run Awaiting Confirmation]"
+_PAUSED_TAG = "[Paused Run Awaiting Review]"
+_PAUSED_END = "[/Paused Run Awaiting Review]"
 
 
 def resolve_soul_path(channel: str | None, chat_id: str | None) -> Path:
@@ -83,6 +85,28 @@ def build_runtime_context(
             lines.append(f"{k}: {v}")
     lines.append(_RUNTIME_CONTEXT_END)
     return "\n".join(lines)
+
+
+def format_paused_block(paused_summaries: list[str]) -> str:
+    """Wrap one or more paused-run summaries for injection into the user
+    message head. Instructs the LLM to map natural-language review intent
+    ("通过" / "打回 <理由>" / "改成 <文本>") into a `resume_run` tool call
+    on the correct run_id. The dry `/resume <id> approve|reject:...|edit:...`
+    syntax is still supported via the bus gateway as a fallback."""
+    joined = "\n---\n".join(paused_summaries)
+    return (
+        f"{_PAUSED_TAG}\n"
+        f"{joined}\n\n"
+        "If the next user message indicates the review outcome for one of "
+        "these runs, call `resume_run(run_id=..., action=..., ...)`:\n"
+        "  - 通过/approve/同意/可以 → action=\"approve\"\n"
+        "  - 打回/拒绝/reject + 理由 → action=\"reject\", feedback=<理由原文>\n"
+        "  - 改成/替换为 + 新文本 → action=\"edit\", edited=<新文本>\n"
+        "Pick the run_id from this block — if there's more than one and the "
+        "user didn't disambiguate, ask which run they mean. Preserve the "
+        "user's exact wording for feedback/edited (no paraphrase).\n"
+        f"{_PAUSED_END}"
+    )
 
 
 def format_pending_block(pending_summary: str) -> str:
