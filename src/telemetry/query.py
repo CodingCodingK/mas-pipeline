@@ -558,6 +558,7 @@ async def get_project_aggregate(
     from collections import defaultdict as _dd
 
     cost_b: dict[str, float] = _dd(float)
+    missing_pricing_b: dict[str, int] = _dd(int)
     tok_in: dict[str, int] = _dd(int)
     tok_out: dict[str, int] = _dd(int)
     tok_cache: dict[str, int] = _dd(int)
@@ -575,6 +576,8 @@ async def get_project_aggregate(
         if etype == "llm_call":
             if p.get("cost_usd") is not None:
                 cost_b[key] += float(p["cost_usd"])
+            else:
+                missing_pricing_b[key] += 1
             tok_in[key] += int(p.get("input_tokens") or 0)
             tok_out[key] += int(p.get("output_tokens") or 0)
             tok_cache[key] += int(p.get("cache_read_tokens") or 0)
@@ -588,9 +591,18 @@ async def get_project_aggregate(
         elif etype == "error":
             err_count[key] += 1
 
-    all_keys = sorted(set(cost_b) | set(tok_in) | set(status_b) | set(err_count))
+    all_keys = sorted(
+        set(cost_b) | set(missing_pricing_b) | set(tok_in) | set(status_b) | set(err_count)
+    )
 
-    cost_over_time = [{"bucket": k, "cost_usd": round(cost_b[k], 6)} for k in all_keys]
+    cost_over_time = [
+        {
+            "bucket": k,
+            "cost_usd": round(cost_b[k], 6),
+            "missing_pricing_calls": missing_pricing_b[k],
+        }
+        for k in all_keys
+    ]
     tokens_over_time = [
         {
             "bucket": k,

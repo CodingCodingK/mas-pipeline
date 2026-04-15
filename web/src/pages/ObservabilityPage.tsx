@@ -50,6 +50,7 @@ interface TurnRow {
 interface CostBucket {
   bucket: string;
   cost_usd: number;
+  missing_pricing_calls: number;
 }
 interface TokenBucket {
   bucket: string;
@@ -292,10 +293,19 @@ function AggregatesTab({ projectId }: { projectId: number }) {
         <p className="text-sm text-rose-600 font-mono">Failed: {error.message}</p>
       )}
 
-      {data && (
+      {data && (() => {
+        const totalMissingPricing = data.cost_over_time.reduce(
+          (acc, b) => acc + (b.missing_pricing_calls || 0),
+          0,
+        );
+        return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <ChartCard
-            title="Cost over time (USD)"
+            title={
+              totalMissingPricing > 0
+                ? `Cost over time (USD) — ⚠ ${totalMissingPricing} unpriced llm_call(s)`
+                : "Cost over time (USD)"
+            }
             empty={data.cost_over_time.length === 0}
           >
             <LineChart data={data.cost_over_time}>
@@ -391,7 +401,8 @@ function AggregatesTab({ projectId }: { projectId: number }) {
             </LineChart>
           </ChartCard>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
