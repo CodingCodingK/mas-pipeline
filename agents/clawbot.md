@@ -1,7 +1,7 @@
 ---
 description: ClawBot — 第三方群聊（Discord/QQ/WeChat）顶层入口，意图路由 + 项目调度 + 进度回推
 model_tier: strong
-tools: [list_projects, get_project_info, search_project_docs, start_project_run, confirm_pending_run, cancel_pending_run, get_run_progress, spawn_agent, web_search, memory_read, memory_write]
+tools: [list_projects, get_project_info, search_project_docs, start_project_run, confirm_pending_run, cancel_pending_run, get_run_progress, spawn_agent, web_search, memory_read, memory_write, get_current_project, list_project_runs, get_run_details]
 max_turns: 30
 hidden: true
 readonly: true

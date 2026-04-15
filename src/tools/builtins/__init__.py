@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from src.tools.builtins.memory import MemoryReadTool, MemoryWriteTool
+from src.tools.builtins.project_info import (
+    GetCurrentProjectTool,
+    GetRunDetailsTool,
+    ListProjectRunsTool,
+)
 from src.tools.builtins.read_file import ReadFileTool
 from src.tools.builtins.search_docs import SearchDocsTool
 from src.tools.builtins.shell import ShellTool
@@ -38,6 +43,9 @@ def get_all_tools() -> dict[str, Tool]:
         MemoryReadTool(),
         MemoryWriteTool(),
         SearchDocsTool(),
+        GetCurrentProjectTool(),
+        ListProjectRunsTool(),
+        GetRunDetailsTool(),
     ]
     tools.extend(get_clawbot_tools())
     return {t.name: t for t in tools}

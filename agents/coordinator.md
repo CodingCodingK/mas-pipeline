@@ -1,7 +1,7 @@
 ---
 description: 协调者 — 拆解任务、派发子 Agent、综合结果
 model_tier: strong
-tools: [spawn_agent, memory_read, memory_write]
+tools: [spawn_agent, memory_read, memory_write, get_current_project, list_project_runs, get_run_details]
 readonly: true
 entry_only: true
 ---

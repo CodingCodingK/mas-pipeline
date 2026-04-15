@@ -1,7 +1,7 @@
 ---
 description: 聊天助手 — Gateway 默认角色
 model_tier: light
-tools: [web_search, search_docs, read_file, write_file, memory_read, memory_write]
+tools: [web_search, search_docs, read_file, write_file, memory_read, memory_write, get_current_project, list_project_runs, get_run_details]
 max_turns: 8
 readonly: true
 entry_only: true
