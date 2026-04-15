@@ -109,7 +109,16 @@ async def delete_global_agent(name: str) -> Response:
     "/projects/{project_id}/agents", response_model=AgentListResponse
 )
 async def list_project_agents(project_id: int) -> AgentListResponse:
-    items = [AgentItem(**row) for row in merged_agents_view(project_id)]
+    from src.db import get_db
+    from src.models import Project
+
+    async with get_db() as db:
+        proj = await db.get(Project, project_id)
+    pipeline_name = proj.pipeline if proj is not None else None
+    items = [
+        AgentItem(**row)
+        for row in merged_agents_view(project_id, pipeline_name)
+    ]
     return AgentListResponse(items=items)
 
 

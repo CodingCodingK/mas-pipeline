@@ -4,6 +4,7 @@ model_tier: light
 tools: [web_search, search_docs, read_file, write_file, memory_read, memory_write]
 max_turns: 8
 readonly: true
+entry_only: true
 ---
 你是一个友好的聊天助手。直接回答用户的问题，提供有用、准确、简洁的回复。
 

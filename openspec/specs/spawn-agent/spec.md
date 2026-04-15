@@ -133,23 +133,34 @@ Field names SHALL use kebab-case. Statistics values SHALL be integers rendered a
 - **WHEN** `_build_notification_message` constructs the dict
 - **THEN** the `metadata` dict SHALL include `tool_use_count`, `total_tokens`, `duration_ms` keys alongside the existing `kind` / `agent_run_id` / `sub_agent_role` / `status` keys so the frontend can render badges without re-parsing XML
 
-### Requirement: Sub-agent disallowed roles blacklist
-`src/tools/builtins/spawn_agent.py` SHALL define a module-level constant `SUB_AGENT_DISALLOWED_ROLES: frozenset[str] = frozenset({"clawbot"})`. On every `SpawnAgentTool.call(params, context)` invocation, the tool SHALL check `params["role"]` against this set as the first action in `call`, and if matched return `ToolResult(success=False, output="role '<role>' cannot be spawned as a sub-agent")` without creating an `AgentRun` row, without firing hook events, and without launching any task.
+### Requirement: Entry-only agents cannot be spawned as sub-agents
+An agent MAY declare `entry_only: true` in its markdown frontmatter to signal it is a top-level role (driven by user conversation or a bus adapter) and must never be launched as a sub-agent. `src.storage.is_entry_only_agent(name, project_id)` SHALL resolve the effective agent file through the project→global fallback chain and return the flag value; missing file, malformed frontmatter, or invalid name SHALL return `False` so a broken definition cannot masquerade as protected.
 
-The check exists to prevent `clawbot` (the top-level group-chat router) from being recursively spawned by other agents — it owns its own progress-reporting and pending-run lifecycle that does not make sense inside a sub-agent context.
+On every `SpawnAgentTool.call(params, context)` invocation, the tool SHALL call `is_entry_only_agent(params["role"], context.project_id)` as the first action in `call`, and if it returns `True` SHALL return `ToolResult(success=False, output="role '<role>' is marked entry_only in its frontmatter and cannot be launched as a sub-agent.")` without creating an `AgentRun` row, without firing hook events, and without launching any task.
+
+Roles currently marked `entry_only`:
+- `clawbot`: top-level group-chat router that owns bus-attached identity (channel/chat_id) and a pending-run lifecycle that does not survive in a sub-agent context.
+- `assistant` / `coordinator`: Gateway top-level entry roles (chat / autonomous mode). Their system prompts assume "I am the top-level role driving user conversation"; spawning them as children violates that assumption and duplicates a role that already exists one layer up.
+
+The frontmatter-declarative approach is deliberate: adding a new top-level role is a one-line frontmatter change, not a code edit, eliminating the class of bugs where a new entry role is added but forgotten in a hardcoded blacklist.
 
 #### Scenario: Spawning clawbot is rejected
 - **WHEN** any agent calls `spawn_agent` with `role="clawbot"`
-- **THEN** the tool SHALL return `ToolResult(success=False)` with a message indicating the role is not spawnable
+- **THEN** the tool SHALL return `ToolResult(success=False)` with a message indicating the role is entry_only
 - **AND** no `AgentRun` row SHALL be created
 - **AND** no `SubagentStart` hook SHALL fire
 - **AND** no `asyncio.create_task` SHALL be launched
 
+#### Scenario: Spawning assistant or coordinator is rejected
+- **WHEN** any agent calls `spawn_agent` with `role="assistant"` or `role="coordinator"`
+- **THEN** the tool SHALL return `ToolResult(success=False)` with a message indicating the role is entry_only
+- **AND** no `AgentRun` row SHALL be created, no hook SHALL fire, no task SHALL launch
+
 #### Scenario: Other roles still spawn normally
-- **WHEN** any agent calls `spawn_agent` with `role="researcher"`
+- **WHEN** any agent calls `spawn_agent` with `role="researcher"` and `researcher.md` does not declare `entry_only`
 - **THEN** the existing spawn path SHALL execute unchanged (AgentRun created, hook fires, task launched)
 
-#### Scenario: Blacklist is a single source of truth
-- **WHEN** future roles need to be added to the blacklist
-- **THEN** they SHALL be added to `SUB_AGENT_DISALLOWED_ROLES` and no other code path SHALL need updating
+#### Scenario: Adding a new entry role requires only a frontmatter edit
+- **WHEN** a new top-level role `gateway_bot` is added and its `agents/gateway_bot.md` frontmatter declares `entry_only: true`
+- **THEN** subsequent `spawn_agent` calls with `role="gateway_bot"` SHALL be rejected without any code change to `src/tools/builtins/spawn_agent.py`
 

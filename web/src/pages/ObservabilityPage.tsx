@@ -1088,7 +1088,7 @@ function RawTimelineTab({ projectId }: { projectId: number }) {
         <EmptyState msg="No events match these filters" />
       )}
       {shouldFetch && data && data.length > 0 && (
-        <TraceTable rows={data} />
+        <TraceTable rows={data} reverseRoots={scope === "chat"} />
       )}
     </div>
   );
@@ -1119,8 +1119,20 @@ function nestChildren(children: TurnRow[]): NestedChild[] {
   return out;
 }
 
-function TraceTable({ rows }: { rows: TurnRow[] }) {
-  const groups = useMemo(() => groupTrace(rows), [rows]);
+function TraceTable({
+  rows,
+  reverseRoots = false,
+}: {
+  rows: TurnRow[];
+  reverseRoots?: boolean;
+}) {
+  const groups = useMemo(() => {
+    const g = groupTrace(rows);
+    // Chat scope: newest turn on top, but children inside each group stay
+    // chronological (groupTrace already sorted them). Pipeline-run scope
+    // keeps strict ascending order so lifecycle markers read top-down.
+    return reverseRoots ? [...g].reverse() : g;
+  }, [rows, reverseRoots]);
 
   // Default: all roots with children are collapsed. When the row set
   // changes (e.g. user picks a different run), re-derive the initial

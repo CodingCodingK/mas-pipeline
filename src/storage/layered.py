@@ -114,7 +114,23 @@ def _parse_agent_frontmatter(path: Path) -> dict:
         "tools": fm.get("tools") or [],
         "hidden": bool(fm.get("hidden", False)),
         "readonly": bool(fm.get("readonly", False)),
+        "entry_only": bool(fm.get("entry_only", False)),
     }
+
+
+def is_entry_only_agent(name: str, project_id: int | None) -> bool:
+    """Return True if the effective agent file declares `entry_only: true`.
+
+    Entry-only agents are top-level roles (driven by a user conversation or a
+    bus adapter) and must never be launched as sub-agents via spawn_agent.
+    Missing file / malformed frontmatter / invalid name all return False so a
+    broken agent definition cannot masquerade as protected.
+    """
+    try:
+        path = resolve_agent_file(name, project_id)
+    except (FileNotFoundError, InvalidNameError):
+        return False
+    return bool(_parse_agent_frontmatter(path).get("entry_only"))
 
 
 def _agent_protection(name: str, project_id: int | None) -> tuple[bool, bool]:
@@ -215,28 +231,29 @@ def delete_agent_project(name: str, project_id: int) -> None:
 _PROJECT_PINNED_AGENTS = frozenset({"assistant", "coordinator"})
 
 
-def _project_pipeline_roles(project_id: int) -> set[str]:
-    """Roles statically referenced by any pipeline visible to this project.
+def _roles_for_pipeline(pipeline_name: str | None, project_id: int) -> set[str]:
+    """Roles statically referenced by a single pipeline yaml.
 
-    Walks every pipeline name in the project's merged view (global + project-
-    local overrides), resolves each to its effective YAML, and unions the
-    `nodes[].role` sets. Used by `merged_agents_view` to hide global agents
-    that this project has no use for.
+    A Project row binds to exactly one pipeline via `Project.pipeline`. This
+    helper resolves that name through the project→global fallback chain and
+    returns the role set. Returns empty on missing / malformed / unresolved
+    pipeline so a broken binding never breaks the agents list.
     """
-    roles: set[str] = set()
-    for pipe in merged_pipelines_view(project_id):
-        try:
-            path = resolve_pipeline_file(pipe["name"], project_id)
-        except FileNotFoundError:
-            continue
-        roles |= _extract_roles_from_pipeline(path)
-    return roles
+    if not pipeline_name:
+        return set()
+    try:
+        path = resolve_pipeline_file(pipeline_name, project_id)
+    except FileNotFoundError:
+        return set()
+    return _extract_roles_from_pipeline(path)
 
 
-def merged_agents_view(project_id: int) -> list[dict]:
+def merged_agents_view(
+    project_id: int, pipeline_name: str | None = None
+) -> list[dict]:
     g = set(list_agents_global())
     p = set(list_agents_project(project_id))
-    pipeline_roles = _project_pipeline_roles(project_id)
+    pipeline_roles = _roles_for_pipeline(pipeline_name, project_id)
     out: list[dict] = []
     for n in sorted(g | p):
         if n in p and n in g:

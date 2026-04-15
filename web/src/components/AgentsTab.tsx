@@ -40,7 +40,9 @@ export default function AgentsTab({ projectId }: { projectId: number }) {
             </button>
           </div>
           <p className="mb-3 text-xs text-slate-500">
-            只列出系统角色（assistant / coordinator）、本项目覆写的 agent，以及被本项目 pipeline 引用的 agent。其它全局角色已隐藏。
+            Showing only system roles (assistant / coordinator), agents
+            overridden by this project, and agents referenced by this
+            project's pipeline. Other global roles are hidden.
           </p>
           {loading && <p className="text-slate-500">Loading…</p>}
           {error && (
