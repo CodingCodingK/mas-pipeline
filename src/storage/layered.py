@@ -50,6 +50,15 @@ class AgentInUseError(StorageError):
         )
 
 
+class AgentProtectedError(StorageError):
+    """Write/delete blocked because the agent is marked readonly or hidden."""
+
+    def __init__(self, name: str, reason: str) -> None:
+        self.name = name
+        self.reason = reason
+        super().__init__(f"agent {name!r} is protected ({reason})")
+
+
 def _safe_name(name: str) -> None:
     if not isinstance(name, str) or not _NAME_RE.fullmatch(name):
         raise InvalidNameError(
@@ -88,7 +97,7 @@ def read_agent(name: str, project_id: int | None) -> str:
 
 
 def _parse_agent_frontmatter(path: Path) -> dict:
-    """Extract description, model_tier, tools from agent frontmatter."""
+    """Extract description, model_tier, tools, hidden, readonly from frontmatter."""
     try:
         text = path.read_text(encoding="utf-8")
     except Exception:
@@ -103,7 +112,22 @@ def _parse_agent_frontmatter(path: Path) -> dict:
         "description": fm.get("description", ""),
         "model_tier": fm.get("model_tier", ""),
         "tools": fm.get("tools") or [],
+        "hidden": bool(fm.get("hidden", False)),
+        "readonly": bool(fm.get("readonly", False)),
     }
+
+
+def _agent_protection(name: str, project_id: int | None) -> tuple[bool, bool]:
+    """Return (hidden, readonly) flags for the effective agent file.
+
+    Checks project layer first then global. Missing file → (False, False).
+    """
+    try:
+        path = resolve_agent_file(name, project_id)
+    except FileNotFoundError:
+        return (False, False)
+    meta = _parse_agent_frontmatter(path)
+    return (bool(meta.get("hidden")), bool(meta.get("readonly")))
 
 
 def _list_stems(directory: Path, suffix: str) -> list[str]:
@@ -120,11 +144,27 @@ def list_agents_project(project_id: int) -> list[str]:
     return _list_stems(_project_dir("agents", project_id), ".md")
 
 
+def _check_not_protected(name: str, path: Path) -> None:
+    """Raise AgentProtectedError if existing file is hidden or readonly.
+
+    Check the file currently on disk — not the incoming content — so a
+    client cannot unlock itself by stripping the frontmatter flag.
+    """
+    if not path.is_file():
+        return
+    meta = _parse_agent_frontmatter(path)
+    if meta.get("hidden"):
+        raise AgentProtectedError(name, "hidden")
+    if meta.get("readonly"):
+        raise AgentProtectedError(name, "readonly")
+
+
 def write_agent_global(name: str, content: str) -> bool:
     _safe_name(name)
     d = _global_dir("agents")
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{name}.md"
+    _check_not_protected(name, path)
     created = not path.is_file()
     path.write_text(content, encoding="utf-8")
     return created
@@ -132,9 +172,14 @@ def write_agent_global(name: str, content: str) -> bool:
 
 def write_agent_project(name: str, project_id: int, content: str) -> bool:
     _safe_name(name)
+    # Project override is also blocked if the effective (global) agent is
+    # hidden/readonly — users shouldn't be able to shadow a protected one.
+    global_path = _global_dir("agents") / f"{name}.md"
+    _check_not_protected(name, global_path)
     d = _project_dir("agents", project_id)
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{name}.md"
+    _check_not_protected(name, path)
     created = not path.is_file()
     path.write_text(content, encoding="utf-8")
     return created
@@ -145,6 +190,7 @@ def delete_agent_global(name: str) -> None:
     path = _global_dir("agents") / f"{name}.md"
     if not path.is_file():
         raise FileNotFoundError(f"agent {name!r} not found in global layer")
+    _check_not_protected(name, path)
     refs = find_agent_references_global(name)
     if refs:
         raise AgentInUseError(name, refs)
@@ -158,12 +204,39 @@ def delete_agent_project(name: str, project_id: int) -> None:
         raise FileNotFoundError(
             f"agent {name!r} not found in project {project_id}"
         )
+    _check_not_protected(name, path)
     path.unlink()
+
+
+# System-level agents that are always shown in a project's agent list,
+# regardless of whether any pipeline references them. These are the chat/
+# autonomous-mode entry points and are conceptually "part of the project"
+# even when no pipeline calls them.
+_PROJECT_PINNED_AGENTS = frozenset({"assistant", "coordinator"})
+
+
+def _project_pipeline_roles(project_id: int) -> set[str]:
+    """Roles statically referenced by any pipeline visible to this project.
+
+    Walks every pipeline name in the project's merged view (global + project-
+    local overrides), resolves each to its effective YAML, and unions the
+    `nodes[].role` sets. Used by `merged_agents_view` to hide global agents
+    that this project has no use for.
+    """
+    roles: set[str] = set()
+    for pipe in merged_pipelines_view(project_id):
+        try:
+            path = resolve_pipeline_file(pipe["name"], project_id)
+        except FileNotFoundError:
+            continue
+        roles |= _extract_roles_from_pipeline(path)
+    return roles
 
 
 def merged_agents_view(project_id: int) -> list[dict]:
     g = set(list_agents_global())
     p = set(list_agents_project(project_id))
+    pipeline_roles = _project_pipeline_roles(project_id)
     out: list[dict] = []
     for n in sorted(g | p):
         if n in p and n in g:
@@ -172,12 +245,36 @@ def merged_agents_view(project_id: int) -> list[dict]:
             src = "project-only"
         else:
             src = "global"
+        # Scope filter: show pinned system agents, any agent with a project-
+        # local file, and global agents referenced by this project's pipelines.
+        # Everything else (global-only agents this project never touches) is
+        # hidden to keep the list focused.
+        if (
+            n not in _PROJECT_PINNED_AGENTS
+            and n not in p
+            and n not in pipeline_roles
+        ):
+            continue
         try:
             path = resolve_agent_file(n, project_id)
             meta = _parse_agent_frontmatter(path)
         except FileNotFoundError:
             meta = {}
+        if meta.get("hidden"):
+            continue
         out.append({"name": n, "source": src, **meta})
+    return out
+
+
+def global_agents_view() -> list[dict]:
+    """List global agents with full metadata, filtered for hidden."""
+    out: list[dict] = []
+    for n in list_agents_global():
+        path = _global_dir("agents") / f"{n}.md"
+        meta = _parse_agent_frontmatter(path) if path.is_file() else {}
+        if meta.get("hidden"):
+            continue
+        out.append({"name": n, "source": "global", **meta})
     return out
 
 

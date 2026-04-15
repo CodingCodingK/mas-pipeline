@@ -10,10 +10,11 @@ from pydantic import BaseModel
 from src.api.auth import require_api_key
 from src.storage import (
     AgentInUseError,
+    AgentProtectedError,
     InvalidNameError,
     delete_agent_global,
     delete_agent_project,
-    list_agents_global,
+    global_agents_view,
     merged_agents_view,
     read_agent,
     resolve_agent_file,
@@ -36,6 +37,7 @@ class AgentItem(BaseModel):
     description: str = ""
     model_tier: str = ""
     tools: list[str] = []
+    readonly: bool = False
 
 
 class AgentListResponse(BaseModel):
@@ -53,7 +55,7 @@ class AgentReadResponse(BaseModel):
 
 @router.get("/agents", response_model=AgentListResponse)
 async def list_global_agents() -> AgentListResponse:
-    items = [AgentItem(name=n, source="global") for n in list_agents_global()]
+    items = [AgentItem(**row) for row in global_agents_view()]
     return AgentListResponse(items=items)
 
 
@@ -74,6 +76,8 @@ async def put_global_agent(name: str, body: AgentContent) -> Response:
         created = write_agent_global(name, body.content)
     except InvalidNameError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except AgentProtectedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     return Response(status_code=201 if created else 200)
 
 
@@ -85,6 +89,8 @@ async def delete_global_agent(name: str) -> Response:
         raise HTTPException(status_code=422, detail=str(e))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"agent '{name}' not found")
+    except AgentProtectedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except AgentInUseError as e:
         raise HTTPException(
             status_code=409,
@@ -137,6 +143,8 @@ async def put_project_agent(
         created = write_agent_project(name, project_id, body.content)
     except InvalidNameError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except AgentProtectedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     return Response(status_code=201 if created else 200)
 
 
@@ -153,6 +161,8 @@ async def delete_project_agent(project_id: int, name: str) -> Response:
             status_code=404,
             detail=f"agent '{name}' not found in project {project_id}",
         )
+    except AgentProtectedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     return Response(status_code=204)
 
 

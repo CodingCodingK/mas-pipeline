@@ -9,6 +9,7 @@ interface EditorTarget {
   name: string;
   isNew: boolean;
   source?: string;
+  readonly?: boolean;
 }
 
 export default function AgentsTab({ projectId }: { projectId: number }) {
@@ -28,7 +29,7 @@ export default function AgentsTab({ projectId }: { projectId: number }) {
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-1">
             <h2 className="text-lg font-medium">Agents</h2>
             <button
               type="button"
@@ -38,6 +39,9 @@ export default function AgentsTab({ projectId }: { projectId: number }) {
               + New
             </button>
           </div>
+          <p className="mb-3 text-xs text-slate-500">
+            只列出系统角色（assistant / coordinator）、本项目覆写的 agent，以及被本项目 pipeline 引用的 agent。其它全局角色已隐藏。
+          </p>
           {loading && <p className="text-slate-500">Loading…</p>}
           {error && (
             <p className="text-sm text-red-700 font-mono">{error.message}</p>
@@ -52,12 +56,22 @@ export default function AgentsTab({ projectId }: { projectId: number }) {
                   <button
                     type="button"
                     onClick={() =>
-                      setTarget({ name: item.name, isNew: false, source: item.source })
+                      setTarget({
+                        name: item.name,
+                        isNew: false,
+                        source: item.source,
+                        readonly: item.readonly,
+                      })
                     }
                     className="w-full px-3 py-2.5 text-left hover:bg-slate-50"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-sm">{item.name}</span>
+                      <span className="font-mono text-sm">
+                        {item.readonly && (
+                          <span className="mr-1.5" title="read-only">🔒</span>
+                        )}
+                        {item.name}
+                      </span>
                       <SourceBadge source={item.source} />
                     </div>
                     {(item.description || item.model_tier || item.tools.length > 0) && (
@@ -91,6 +105,7 @@ export default function AgentsTab({ projectId }: { projectId: number }) {
               name={target.name}
               isNew={target.isNew}
               source={target.source as any}
+              readonly={target.readonly}
               onSaved={() => {
                 setTarget(null);
                 reload();

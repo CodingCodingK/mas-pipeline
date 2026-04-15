@@ -5,6 +5,7 @@ See src/storage/layered.py for the implementation."""
 
 from src.storage.layered import (
     AgentInUseError,
+    AgentProtectedError,
     InvalidNameError,
     StorageError,
     delete_agent_global,
@@ -12,6 +13,7 @@ from src.storage.layered import (
     delete_pipeline_global,
     delete_pipeline_project,
     find_agent_references_global,
+    global_agents_view,
     list_agents_global,
     list_agents_project,
     list_pipelines_global,
@@ -30,6 +32,7 @@ from src.storage.layered import (
 
 __all__ = [
     "AgentInUseError",
+    "AgentProtectedError",
     "InvalidNameError",
     "StorageError",
     "delete_agent_global",
@@ -37,6 +40,7 @@ __all__ = [
     "delete_pipeline_global",
     "delete_pipeline_project",
     "find_agent_references_global",
+    "global_agents_view",
     "list_agents_global",
     "list_agents_project",
     "list_pipelines_global",
