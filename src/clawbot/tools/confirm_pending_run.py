@@ -59,10 +59,12 @@ class ConfirmPendingRunTool(Tool):
             )
 
         # Reserve the run_id in DB up-front so the reporter and pipeline
-        # task agree on a single string identifier.
+        # task agree on a single string identifier. workflow_runs.session_id
+        # FKs to conversations(id), NOT chat_sessions(id) — pass the
+        # conversation id, not the chat session primary key.
         run_row = await create_run(
             project_id=pending.project_id,
-            session_id=chat_session.id,
+            session_id=conversation_id,
             pipeline=pending.pipeline,
         )
         pipeline_run_id = run_row.run_id

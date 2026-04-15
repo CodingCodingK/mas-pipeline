@@ -72,6 +72,11 @@ class WeChatChannel(BaseChannel):
     async def send(self, msg: OutboundMessage) -> None:
         if not self._http or not self._token:
             return
+        if msg.attachments:
+            logger.warning(
+                "WeChat channel does not support attachments; dropping %d file(s) on message to %s",
+                len(msg.attachments), msg.chat_id,
+            )
 
         context_token = self._context_tokens.get(msg.chat_id)
         if not context_token:

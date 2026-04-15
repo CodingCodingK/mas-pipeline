@@ -167,7 +167,7 @@ CREATE TABLE chat_sessions (
     status          VARCHAR(50) DEFAULT 'active',
     created_at      TIMESTAMP DEFAULT NOW(),
     last_active_at  TIMESTAMP DEFAULT NOW(),
-    CHECK (mode IN ('chat', 'autonomous'))
+    CHECK (mode IN ('chat', 'autonomous', 'bus_chat'))
 );
 CREATE INDEX idx_chat_sessions_channel ON chat_sessions(channel);
 CREATE INDEX idx_chat_sessions_project ON chat_sessions(project_id);

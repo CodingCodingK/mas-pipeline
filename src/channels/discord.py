@@ -81,19 +81,45 @@ class DiscordChannel(BaseChannel):
         if not self._http:
             return
         url = f"{_DISCORD_API}/channels/{msg.chat_id}/messages"
-        headers = {"Authorization": f"Bot {self._token}", "Content-Type": "application/json"}
+        auth_headers = {"Authorization": f"Bot {self._token}"}
         chunks = _split_message(msg.content, _MAX_MESSAGE_LEN)
+        if not chunks:
+            chunks = [""]
         for i, chunk in enumerate(chunks):
             payload: dict[str, Any] = {"content": chunk}
             if i == 0 and msg.reply_to:
                 payload["message_reference"] = {"message_id": msg.reply_to}
-            resp = await self._http.post(url, headers=headers, json=payload)
+
+            # Attach files only on the LAST chunk so the attachment renders
+            # next to the final bit of text, mirroring how humans send.
+            last_chunk = i == len(chunks) - 1
+            if last_chunk and msg.attachments:
+                files = [
+                    (
+                        f"files[{idx}]",
+                        (a.filename, a.content_bytes, a.mime),
+                    )
+                    for idx, a in enumerate(msg.attachments)
+                ]
+                data = {"payload_json": json.dumps(payload)}
+                resp = await self._http.post(
+                    url, headers=auth_headers, data=data, files=files
+                )
+            else:
+                headers = {**auth_headers, "Content-Type": "application/json"}
+                resp = await self._http.post(url, headers=headers, json=payload)
+
             if resp.status_code == 429:
                 retry_after = resp.json().get("retry_after", 1)
                 logger.warning("Discord rate limited, waiting %.1fs", retry_after)
                 await asyncio.sleep(retry_after)
-                await self._http.post(url, headers=headers, json=payload)
-            elif resp.status_code >= 400:
+                if last_chunk and msg.attachments:
+                    resp = await self._http.post(
+                        url, headers=auth_headers, data=data, files=files
+                    )
+                else:
+                    resp = await self._http.post(url, headers=headers, json=payload)
+            if resp.status_code >= 400:
                 logger.error("Discord send failed (%d): %s", resp.status_code, resp.text)
 
     async def _gateway_loop(self, ws: websockets.WebSocketClientProtocol) -> None:

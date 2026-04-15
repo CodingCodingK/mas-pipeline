@@ -1,8 +1,8 @@
 """ClawBot per-session state: pending_run slot with TTL, stored in process memory.
 
 Multi-worker deployment is not supported (Phase 8's WEB_CONCURRENCY hard-fail
-guards this). Restart loss is acceptable — pending entries are 90-second short-
-lived intent records, not durable state.
+guards this). Restart loss is acceptable — pending entries are short-lived
+intent records, not durable state.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-PENDING_TTL_SECONDS = 90.0
+PENDING_TTL_SECONDS = 600.0
 
 
 @dataclass

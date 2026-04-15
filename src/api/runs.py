@@ -607,6 +607,56 @@ async def stream_run_events(run_id: str):
     )
 
 
+def build_paused_markdown(run: WorkflowRun, paused_node: str) -> tuple[str, str]:
+    """Render a paused run's in-progress output (awaiting human review) as md.
+
+    Returns ``(base_name, body)``. Reads ``workflow_runs.metadata_.paused_output``
+    which ``execute_pipeline`` writes when it hits an ``interrupt: true`` node.
+    Used by clawbot's pipeline_paused branch to attach the review material
+    to the group chat notification.
+    """
+    meta = run.metadata_ or {}
+    paused_output = meta.get("paused_output", "")
+    pipeline_name = (run.pipeline or "run").replace("_generation", "")
+    from datetime import datetime
+    ts_part = datetime.utcnow().strftime("%Y%m%d_%H%M")
+    base_name = f"{pipeline_name}_{paused_node}_paused_{ts_part}"
+    body = paused_output if paused_output else "(paused node produced no output)"
+    return base_name, body
+
+
+def build_run_markdown(run: WorkflowRun, include_all: bool = False) -> tuple[str, str]:
+    """Render a workflow run's final output as Markdown.
+
+    Returns ``(base_name, body)``. ``base_name`` is the filename stem without
+    extension: ``{pipeline}_result_{YYYYMMDD_HHMM}``. Reused by
+    ``export_run`` (HTTP) and clawbot's chat attachment path so both stay
+    in lockstep.
+    """
+    meta = run.metadata_ or {}
+    outputs = meta.get("outputs", {})
+    final_output = meta.get("final_output", "")
+
+    pipeline_name = (run.pipeline or "run").replace("_generation", "")
+    ts_part = ""
+    if run.finished_at:
+        ts_part = run.finished_at.strftime("%Y%m%d_%H%M")
+    elif run.started_at:
+        ts_part = run.started_at.strftime("%Y%m%d_%H%M")
+    base_name = f"{pipeline_name}_result_{ts_part}" if ts_part else f"{pipeline_name}_result"
+
+    if include_all:
+        lines = [f"# {pipeline_name} Result\n"]
+        for node_name, content in outputs.items():
+            lines.append(f"## {node_name}\n\n{content}\n")
+        if final_output and final_output not in outputs.values():
+            lines.append(f"## Final Output\n\n{final_output}\n")
+    else:
+        lines = [final_output if final_output else "(no output)"]
+
+    return base_name, "\n".join(lines)
+
+
 @router.get("/runs/{run_id}/export")
 async def export_run(
     run_id: str,
@@ -617,30 +667,18 @@ async def export_run(
 
     By default exports only the final output. Set ``include_all=true``
     to include all intermediate node outputs as well.
-
-    Filename: ``{pipeline}_result_{datetime}.{ext}`` unless the pipeline
-    input specified a custom ``title``.
     """
     run = await get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
-    meta = run.metadata_ or {}
-    outputs = meta.get("outputs", {})
-    final_output = meta.get("final_output", "")
 
-    # Build filename: pipeline_result_YYYYMMDD_HHMM
-    pipeline_name = (run.pipeline or "run").replace("_generation", "")
-    ts_part = ""
-    if run.finished_at:
-        ts_part = run.finished_at.strftime("%Y%m%d_%H%M")
-    elif run.started_at:
-        ts_part = run.started_at.strftime("%Y%m%d_%H%M")
-    base_name = f"{pipeline_name}_result_{ts_part}" if ts_part else f"{pipeline_name}_result"
+    base_name, md_body = build_run_markdown(run, include_all=include_all)
 
     if fmt == "json":
-        payload: dict = {"run_id": run.run_id, "final_output": final_output}
+        meta = run.metadata_ or {}
+        payload: dict = {"run_id": run.run_id, "final_output": meta.get("final_output", "")}
         if include_all:
-            payload["outputs"] = outputs
+            payload["outputs"] = meta.get("outputs", {})
         body = json.dumps(payload, ensure_ascii=False, indent=2)
         return StreamingResponse(
             iter([body]),
@@ -648,19 +686,8 @@ async def export_run(
             headers={"Content-Disposition": f'attachment; filename="{base_name}.json"'},
         )
 
-    # Markdown: only final output by default
-    if include_all:
-        lines = [f"# {pipeline_name} Result\n"]
-        for node_name, content in outputs.items():
-            lines.append(f"## {node_name}\n\n{content}\n")
-        if final_output and final_output not in outputs.values():
-            lines.append(f"## Final Output\n\n{final_output}\n")
-    else:
-        lines = [final_output if final_output else "(no output)"]
-
-    body = "\n".join(lines)
     return StreamingResponse(
-        iter([body]),
+        iter([md_body]),
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{base_name}.md"'},
     )

@@ -22,6 +22,15 @@ class InboundMessage:
 
 
 @dataclass
+class Attachment:
+    """A file attachment to ride alongside an OutboundMessage."""
+
+    filename: str
+    content_bytes: bytes
+    mime: str = "application/octet-stream"
+
+
+@dataclass
 class OutboundMessage:
     """Message to send back to an external platform."""
 
@@ -30,3 +39,4 @@ class OutboundMessage:
     content: str        # Response text
     reply_to: str | None = None  # Optional message ID for replies
     metadata: dict = field(default_factory=dict)  # Platform-specific directives
+    attachments: list[Attachment] = field(default_factory=list)  # Optional files

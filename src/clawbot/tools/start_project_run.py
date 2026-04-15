@@ -1,7 +1,7 @@
 """start_project_run — two-phase commit phase 1: stash a pending run.
 
 Does NOT launch the pipeline. Writes the request into the per-session
-PendingRunStore (90s TTL, single-slot overwrite) and returns a
+PendingRunStore (10-minute TTL, single-slot overwrite) and returns a
 "waiting for confirmation" message. The user's next message decides:
   - confirmation → confirm_pending_run launches the pipeline
   - cancellation → cancel_pending_run clears the slot
@@ -93,6 +93,17 @@ class StartProjectRunTool(Tool):
         if not isinstance(inputs, dict):
             return ToolResult(output="Error: inputs must be an object", success=False)
 
+        user_input = inputs.get("user_input")
+        if not isinstance(user_input, str) or not user_input.strip():
+            return ToolResult(
+                output=(
+                    "Error: inputs.user_input is required and must be a "
+                    "non-empty string — ask the user what they actually want "
+                    "the pipeline to produce before staging the run."
+                ),
+                success=False,
+            )
+
         pipeline_override = params.get("pipeline")
 
         if context.session_id is None:
@@ -125,7 +136,7 @@ class StartProjectRunTool(Tool):
         _turn_guard[key] = True
 
         lines = [
-            f"Pending run staged (awaiting confirmation, 90s TTL):",
+            f"Pending run staged (awaiting confirmation, 10-min TTL):",
             f"  project: #{project_id} {project_name}",
             f"  pipeline: {pipeline}",
             f"  inputs: {pending.inputs}",

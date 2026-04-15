@@ -64,6 +64,11 @@ class QQChannel(BaseChannel):
         if not self._client or not self._client.api:
             logger.warning("QQ client not ready, cannot send")
             return
+        if msg.attachments:
+            logger.warning(
+                "QQ channel does not support attachments; dropping %d file(s) on message to %s",
+                len(msg.attachments), msg.chat_id,
+            )
 
         api = self._client.api
         self._msg_seq += 1

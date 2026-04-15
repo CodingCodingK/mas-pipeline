@@ -9,8 +9,11 @@ import signal
 from src.bus.bus import MessageBus
 from src.bus.gateway import Gateway
 from src.channels.manager import ChannelManager
-from src.db import close_db, init_db, get_redis
+from src.db import close_db, get_session_factory, init_db, get_redis
+from src.events.bus import EventBus
 from src.project.config import get_settings
+from src.telemetry import NullTelemetryCollector, set_collector
+from src.telemetry.collector import TelemetryCollector
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,29 @@ async def run_gateway() -> None:
         logger.error("Another gateway instance is already running")
         await close_db()
         return
+
+    # Telemetry collector — pipelines launched by clawbot emit events via
+    # get_collector(); without this bootstrap the process-global collector
+    # defaults to NullTelemetryCollector and every event is silently dropped,
+    # which is why run-detail observability was empty for bus-triggered runs.
+    tele_cfg = settings.telemetry
+    tele_event_bus = EventBus(queue_size=tele_cfg.max_queue_size)
+    if tele_cfg.enabled:
+        collector: TelemetryCollector = TelemetryCollector(
+            db_session_factory=get_session_factory(),
+            bus=tele_event_bus,
+            enabled=True,
+            preview_length=tele_cfg.preview_length,
+            batch_size=tele_cfg.batch_size,
+            flush_interval_sec=tele_cfg.flush_interval_sec,
+            max_queue_size=tele_cfg.max_queue_size,
+            pricing_table_path=tele_cfg.pricing_table_path,
+        )
+        await collector.start()
+    else:
+        collector = NullTelemetryCollector(bus=tele_event_bus)
+    set_collector(collector)
+    logger.info("Telemetry collector initialised (enabled=%s)", tele_cfg.enabled)
 
     # Create bus
     bus = MessageBus()
@@ -123,6 +149,12 @@ async def run_gateway() -> None:
 
         # Stop channels (sets _running=False, breaks channel start loops)
         await channel_mgr.stop_all()
+
+        # Flush + stop telemetry collector
+        try:
+            await collector.stop()
+        except Exception:
+            logger.exception("telemetry collector stop failed")
 
         # Cancel remaining tasks
         for t in [channels_task, gateway_task, dispatch_task]:
