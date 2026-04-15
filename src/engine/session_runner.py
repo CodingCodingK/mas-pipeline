@@ -304,7 +304,6 @@ class SessionRunner:
                         async for event in agent_loop(self.state):  # type: ignore[arg-type]
                             self._fanout(event)
                             self._touch()
-                        self._fanout(StreamEvent(type="done", finish_reason="stop"))
                         turn_capture["output"] = self._latest_assistant_preview()
                         turn_capture["message_count_delta"] = (
                             (len(self.state.messages) if self.state else 0) - pre_turn_len
@@ -317,8 +316,14 @@ class SessionRunner:
                     if recall_restore is not None:
                         recall_restore()
 
-                # 3. Persist any new in-memory messages added during the turn
+                # 3. Persist any new in-memory messages added during the turn.
+                #    Must happen BEFORE emitting `done` so HTTP clients that
+                #    re-fetch history on `done` see a DB state that already
+                #    includes this turn's final assistant message. Without
+                #    this ordering a reload-on-done can race persistence and
+                #    overwrite the snapshot with a stale (shorter) history.
                 await self._persist_new_messages(append_message)
+                self._fanout(StreamEvent(type="done", finish_reason="stop"))
 
                 # 4. Decide whether to wait or exit
                 if self._exit_requested:
