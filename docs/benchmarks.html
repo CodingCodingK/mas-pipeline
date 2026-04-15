@@ -25,18 +25,18 @@
 </head>
 <body>
 <h1>mas-pipeline benchmarks</h1>
-<p>Generated from 2 snapshot(s). Numbers come from the
+<p>Generated from 4 snapshot(s). Numbers come from the
 same SQL queries as the future Observability tab.</p>
 
 <div class="card-row">
   <div class="card"><div class="label">LLM p95 (ms)</div>
-    <div class="value">14470</div></div>
+    <div class="value">88012</div></div>
   <div class="card"><div class="label">Avg cost / run (USD)</div>
-    <div class="value">0.0052</div></div>
+    <div class="value">0.0533</div></div>
   <div class="card"><div class="label">Tool failure rate</div>
     <div class="value">0.0%</div></div>
   <div class="card"><div class="label">RAG share of tool-ms</div>
-    <div class="value">0%</div></div>
+    <div class="value">27%</div></div>
   <div class="card"><div class="label">Compact ratio</div>
     <div class="value">0.00</div></div>
   <div class="card"><div class="label">Peak sub-agent concurrency</div>
@@ -100,9 +100,65 @@ same SQL queries as the future Observability tab.</p>
   <tr><th>max_depth</th><td>0</td></tr>
 </table>
 
+<h2>rag_courseware — real</h2>
+<p class="narrative">Source: <code>.plan\benchmarks\20260415_015817_rag_courseware_real.json</code> · Window: <code>2026-04-15T01:54:24.199806+00:00</code> → <code>2026-04-15T01:58:17.508122+00:00</code></p>
+
+<h3>LLM latency (ms)</h3>
+<p class="narrative">LLM 首 token + 总耗时延迟分布。回答面试官'长尾抖动'问题的原始数据。</p>
+<canvas id="chart_llm_3"></canvas>
+
+<h3>Token cost by model</h3>
+<p class="narrative">每次调用的 token 消耗与 USD 成本，汇总到 run / scenario 层。是成本敏感度叙事的硬数据。</p>
+<canvas id="chart_cost_3"></canvas>
+
+<h3>Tool round-trip</h3>
+<p class="narrative">各 built-in tool 的往返延迟与失败率，指出工具层瓶颈。</p>
+<canvas id="chart_tool_3"></canvas>
+
+<h3>Compact stats</h3>
+<p class="narrative">micro / auto / reactive 三档触发频次与压缩比，证明 compact 策略有效。</p>
+<canvas id="chart_compact_3"></canvas>
+
+<h3>Sub-agent fanout</h3>
+<p class="narrative">coordinator spawns 的并发峰值 / 递归深度 / 平均扇出，展示多 agent 差异化能力。</p>
+<table>
+  <tr><th>max_concurrent</th><td>0</td></tr>
+  <tr><th>total_spawns</th><td>0</td></tr>
+  <tr><th>avg_fanout_per_parent</th><td>0.0</td></tr>
+  <tr><th>max_depth</th><td>0</td></tr>
+</table>
+
+<h2>rag_courseware — real</h2>
+<p class="narrative">Source: <code>.plan\benchmarks\20260415_020458_rag_courseware_real.json</code> · Window: <code>2026-04-15T02:00:03.409993+00:00</code> → <code>2026-04-15T02:04:57.881725+00:00</code></p>
+
+<h3>LLM latency (ms)</h3>
+<p class="narrative">LLM 首 token + 总耗时延迟分布。回答面试官'长尾抖动'问题的原始数据。</p>
+<canvas id="chart_llm_4"></canvas>
+
+<h3>Token cost by model</h3>
+<p class="narrative">每次调用的 token 消耗与 USD 成本，汇总到 run / scenario 层。是成本敏感度叙事的硬数据。</p>
+<canvas id="chart_cost_4"></canvas>
+
+<h3>Tool round-trip</h3>
+<p class="narrative">各 built-in tool 的往返延迟与失败率，指出工具层瓶颈。</p>
+<canvas id="chart_tool_4"></canvas>
+
+<h3>Compact stats</h3>
+<p class="narrative">micro / auto / reactive 三档触发频次与压缩比，证明 compact 策略有效。</p>
+<canvas id="chart_compact_4"></canvas>
+
+<h3>Sub-agent fanout</h3>
+<p class="narrative">coordinator spawns 的并发峰值 / 递归深度 / 平均扇出，展示多 agent 差异化能力。</p>
+<table>
+  <tr><th>max_concurrent</th><td>0</td></tr>
+  <tr><th>total_spawns</th><td>0</td></tr>
+  <tr><th>avg_fanout_per_parent</th><td>0.0</td></tr>
+  <tr><th>max_depth</th><td>0</td></tr>
+</table>
+
 
 <script>
-const SNAPSHOTS = [{"scenario": "collect", "provider": "any", "since": "2026-04-13T07:53:16.117167+00:00", "until": "2026-04-14T07:53:16.117167+00:00", "project_id": null, "run_id": null, "dimensions": {"llm_latency": {"count": 36, "mean_ms": 5519.388888888889, "p50_ms": 4200.5, "p95_ms": 14470.25, "p99_ms": 49487.59999999993, "by_provider": {"openai_compat": {"count": 36, "mean_ms": 5519.388888888889, "p95_ms": 14470.25}}, "by_model": {"gpt-5.4": {"count": 36, "mean_ms": 5519.388888888889, "p95_ms": 14470.25}}}, "token_cost": {"calls": 36, "input_tokens": 6441, "output_tokens": 827, "cache_read_tokens": 0, "cost_usd": 0.0, "missing_pricing_calls": 36, "by_model": {"gpt-5.4": {"calls": 36, "input_tokens": 6441, "output_tokens": 827, "cost_usd": 0.0}}}, "tool_rtt": {"count": 2, "failure_rate": 0.0, "by_tool": {"spawn_agent": {"count": 2, "failures": 0, "failure_rate": 0.0, "mean_ms": 24.0, "p50_ms": 24.0, "p95_ms": 33.0}}}, "rag_latency": {"count": 0, "failures": 0, "failure_rate": 0.0, "mean_ms": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "share_of_tool_ms": 0.0, "all_tools_total_count": 2}, "compact_stats": {"count": 0, "by_trigger": {}}, "subagent_fanout": {"max_concurrent": 2, "total_spawns": 2, "avg_fanout_per_parent": 2.0, "max_depth": 1, "max_depth_note": "heuristic: 0/1/2 via spawn chain existence; full recursive depth not computed (requires parent_turn_id walk)."}}, "extra": {}, "_source": ".plan\\benchmarks\\20260414_075316_collect_any.json"}, {"scenario": "collect", "provider": "mock", "since": "2026-04-14T07:52:33.982385+00:00", "until": "2026-04-14T08:07:33.982385+00:00", "project_id": null, "run_id": null, "dimensions": {"llm_latency": {"count": 20, "mean_ms": 11.45, "p50_ms": 8.0, "p95_ms": 24.550000000000008, "p99_ms": 32.90999999999998, "by_provider": {"openai_compat": {"count": 20, "mean_ms": 11.45, "p95_ms": 24.550000000000008}}, "by_model": {"gpt-5.4": {"count": 20, "mean_ms": 11.45, "p95_ms": 24.550000000000008}}}, "token_cost": {"calls": 20, "input_tokens": 200, "output_tokens": 1000, "cache_read_tokens": 0, "cost_usd": 0.010499999999999999, "missing_pricing_calls": 0, "by_model": {"gpt-5.4": {"calls": 20, "input_tokens": 200, "output_tokens": 1000, "cost_usd": 0.010499999999999999}}}, "tool_rtt": {"count": 0, "failure_rate": 0.0, "by_tool": {}}, "rag_latency": {"count": 0, "failures": 0, "failure_rate": 0.0, "mean_ms": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "share_of_tool_ms": 0.0, "all_tools_total_count": 0}, "compact_stats": {"count": 0, "by_trigger": {}}, "subagent_fanout": {"max_concurrent": 0, "total_spawns": 0, "avg_fanout_per_parent": 0.0, "max_depth": 0, "max_depth_note": "heuristic: 0/1/2 via spawn chain existence; full recursive depth not computed (requires parent_turn_id walk)."}}, "extra": {}, "_source": ".plan\\benchmarks\\20260414_080734_collect_mock.json"}];
+const SNAPSHOTS = [{"scenario": "collect", "provider": "any", "since": "2026-04-13T07:53:16.117167+00:00", "until": "2026-04-14T07:53:16.117167+00:00", "project_id": null, "run_id": null, "dimensions": {"llm_latency": {"count": 36, "mean_ms": 5519.388888888889, "p50_ms": 4200.5, "p95_ms": 14470.25, "p99_ms": 49487.59999999993, "by_provider": {"openai_compat": {"count": 36, "mean_ms": 5519.388888888889, "p95_ms": 14470.25}}, "by_model": {"gpt-5.4": {"count": 36, "mean_ms": 5519.388888888889, "p95_ms": 14470.25}}}, "token_cost": {"calls": 36, "input_tokens": 6441, "output_tokens": 827, "cache_read_tokens": 0, "cost_usd": 0.0, "missing_pricing_calls": 36, "by_model": {"gpt-5.4": {"calls": 36, "input_tokens": 6441, "output_tokens": 827, "cost_usd": 0.0}}}, "tool_rtt": {"count": 2, "failure_rate": 0.0, "by_tool": {"spawn_agent": {"count": 2, "failures": 0, "failure_rate": 0.0, "mean_ms": 24.0, "p50_ms": 24.0, "p95_ms": 33.0}}}, "rag_latency": {"count": 0, "failures": 0, "failure_rate": 0.0, "mean_ms": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "share_of_tool_ms": 0.0, "all_tools_total_count": 2}, "compact_stats": {"count": 0, "by_trigger": {}}, "subagent_fanout": {"max_concurrent": 2, "total_spawns": 2, "avg_fanout_per_parent": 2.0, "max_depth": 1, "max_depth_note": "heuristic: 0/1/2 via spawn chain existence; full recursive depth not computed (requires parent_turn_id walk)."}}, "extra": {}, "_source": ".plan\\benchmarks\\20260414_075316_collect_any.json"}, {"scenario": "collect", "provider": "mock", "since": "2026-04-14T07:52:33.982385+00:00", "until": "2026-04-14T08:07:33.982385+00:00", "project_id": null, "run_id": null, "dimensions": {"llm_latency": {"count": 20, "mean_ms": 11.45, "p50_ms": 8.0, "p95_ms": 24.550000000000008, "p99_ms": 32.90999999999998, "by_provider": {"openai_compat": {"count": 20, "mean_ms": 11.45, "p95_ms": 24.550000000000008}}, "by_model": {"gpt-5.4": {"count": 20, "mean_ms": 11.45, "p95_ms": 24.550000000000008}}}, "token_cost": {"calls": 20, "input_tokens": 200, "output_tokens": 1000, "cache_read_tokens": 0, "cost_usd": 0.010499999999999999, "missing_pricing_calls": 0, "by_model": {"gpt-5.4": {"calls": 20, "input_tokens": 200, "output_tokens": 1000, "cost_usd": 0.010499999999999999}}}, "tool_rtt": {"count": 0, "failure_rate": 0.0, "by_tool": {}}, "rag_latency": {"count": 0, "failures": 0, "failure_rate": 0.0, "mean_ms": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "share_of_tool_ms": 0.0, "all_tools_total_count": 0}, "compact_stats": {"count": 0, "by_trigger": {}}, "subagent_fanout": {"max_concurrent": 0, "total_spawns": 0, "avg_fanout_per_parent": 0.0, "max_depth": 0, "max_depth_note": "heuristic: 0/1/2 via spawn chain existence; full recursive depth not computed (requires parent_turn_id walk)."}}, "extra": {}, "_source": ".plan\\benchmarks\\20260414_080734_collect_mock.json"}, {"scenario": "rag_courseware", "provider": "real", "since": "2026-04-15T01:54:24.199806+00:00", "until": "2026-04-15T01:58:17.508122+00:00", "project_id": null, "run_id": null, "dimensions": {"llm_latency": {"count": 9, "mean_ms": 38063.11111111111, "p50_ms": 47283.0, "p95_ms": 80815.2, "p99_ms": 84481.44, "by_provider": {"openai": {"count": 9, "mean_ms": 38063.11111111111, "p95_ms": 80815.2}}, "by_model": {"gpt-5.4": {"count": 9, "mean_ms": 38063.11111111111, "p95_ms": 80815.2}}}, "token_cost": {"calls": 9, "input_tokens": 57260, "output_tokens": 15691, "cache_read_tokens": 0, "cost_usd": 0.0, "missing_pricing_calls": 9, "by_model": {"gpt-5.4": {"calls": 9, "input_tokens": 57260, "output_tokens": 15691, "cost_usd": 0.0}}}, "tool_rtt": {"count": 12, "failure_rate": 0.0, "by_tool": {"search_docs": {"count": 6, "failures": 0, "failure_rate": 0.0, "mean_ms": 176.66666666666666, "p50_ms": 182.5, "p95_ms": 247.0}, "web_search": {"count": 6, "failures": 0, "failure_rate": 0.0, "mean_ms": 1723.1666666666667, "p50_ms": 1704.0, "p95_ms": 1921.5}}}, "rag_latency": {"count": 6, "failures": 0, "failure_rate": 0.0, "mean_ms": 176.66666666666666, "p50_ms": 182.5, "p95_ms": 247.0, "share_of_tool_ms": 0.09299061321168524, "all_tools_total_count": 12}, "compact_stats": {"count": 4, "by_trigger": {"micro": {"count": 4, "mean_before": 6511.5, "mean_after": 3911.25, "mean_ratio": 0.668625, "mean_duration_ms": 0.0}}}, "subagent_fanout": {"max_concurrent": 0, "total_spawns": 0, "avg_fanout_per_parent": 0.0, "max_depth": 0, "max_depth_note": "heuristic: 0/1/2 via spawn chain existence; full recursive depth not computed (requires parent_turn_id walk)."}}, "extra": {"driver": "scripts\\test_rag_e2e.py", "return_code": 0}, "_source": ".plan\\benchmarks\\20260415_015817_rag_courseware_real.json"}, {"scenario": "rag_courseware", "provider": "real", "since": "2026-04-15T02:00:03.409993+00:00", "until": "2026-04-15T02:04:57.881725+00:00", "project_id": null, "run_id": null, "dimensions": {"llm_latency": {"count": 5, "mean_ms": 57967.0, "p50_ms": 54436.0, "p95_ms": 88012.2, "p99_ms": 90468.84, "by_provider": {"openai": {"count": 5, "mean_ms": 57967.0, "p95_ms": 88012.2}}, "by_model": {"gpt-5.4": {"count": 5, "mean_ms": 57967.0, "p95_ms": 88012.2}}}, "token_cost": {"calls": 5, "input_tokens": 29139, "output_tokens": 13005, "cache_read_tokens": 0, "cost_usd": 0.2028975, "missing_pricing_calls": 0, "by_model": {"gpt-5.4": {"calls": 5, "input_tokens": 29139, "output_tokens": 13005, "cost_usd": 0.2028975}}}, "tool_rtt": {"count": 6, "failure_rate": 0.0, "by_tool": {"search_docs": {"count": 6, "failures": 0, "failure_rate": 0.0, "mean_ms": 139.5, "p50_ms": 140.5, "p95_ms": 202.25}}}, "rag_latency": {"count": 6, "failures": 0, "failure_rate": 0.0, "mean_ms": 139.5, "p50_ms": 140.5, "p95_ms": 202.25, "share_of_tool_ms": 1.0, "all_tools_total_count": 6}, "compact_stats": {"count": 1, "by_trigger": {"micro": {"count": 1, "mean_before": 2864.0, "mean_after": 2577.0, "mean_ratio": 0.8998, "mean_duration_ms": 0.0}}}, "subagent_fanout": {"max_concurrent": 0, "total_spawns": 0, "avg_fanout_per_parent": 0.0, "max_depth": 0, "max_depth_note": "heuristic: 0/1/2 via spawn chain existence; full recursive depth not computed (requires parent_turn_id walk)."}}, "extra": {"driver": "scripts\\test_rag_e2e.py", "return_code": 0}, "_source": ".plan\\benchmarks\\20260415_020458_rag_courseware_real.json"}];
 SNAPSHOTS.forEach((snap, i) => {
   const idx = i + 1;
   const llm = snap.dimensions.llm_latency;
