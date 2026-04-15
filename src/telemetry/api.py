@@ -195,13 +195,18 @@ async def observability_turns(
     status: str | None = Query(
         default=None, pattern="^(done|interrupt|error|idle_exit)$"
     ),
+    run_id: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[dict[str, Any]]:
-    """Recent agent_turn events with role/status filters."""
+    """Recent agent_turn events with role/status/run_id filters."""
     if project_id is not None:
         await _assert_project_exists(project_id)
     return await list_project_turns(
-        project_id=project_id, role=role, status=status, limit=limit
+        project_id=project_id,
+        role=role,
+        status=status,
+        run_id=run_id,
+        limit=limit,
     )
 
 

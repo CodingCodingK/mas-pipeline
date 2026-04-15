@@ -637,6 +637,7 @@ async def list_project_turns(
     project_id: int | None = None,
     role: str | None = None,
     status: str | None = None,
+    run_id: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     """Flat list of recent agent_turn events, newest first.
@@ -645,6 +646,7 @@ async def list_project_turns(
         project_id — restrict to one project
         role       — filter by telemetry_events.agent_role
         status     — filter by payload.stop_reason (done/interrupt/error/idle_exit)
+        run_id     — restrict to a single pipeline run
     """
     clauses = ["event_type = 'agent_turn'"]
     params: dict[str, Any] = {"limit": limit}
@@ -657,6 +659,9 @@ async def list_project_turns(
     if status is not None:
         clauses.append("(payload->>'stop_reason') = :status")
         params["status"] = status
+    if run_id is not None:
+        clauses.append("run_id = :run_id")
+        params["run_id"] = run_id
 
     sql = (
         "SELECT ts, project_id, run_id, session_id, agent_role, payload "

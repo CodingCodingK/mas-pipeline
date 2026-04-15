@@ -412,13 +412,22 @@ function AggregatesTab({ projectId }: { projectId: number }) {
 function RawTimelineTab({ projectId }: { projectId: number }) {
   const [role, setRole] = useState<string>("all");
   const [status, setStatus] = useState<string>("all");
+  const [search, setSearch] = useSearchParams();
+  const runFilter = search.get("run") ?? "";
 
   const query = useMemo(() => {
     const parts = [`project_id=${projectId}`, "limit=100"];
     if (role !== "all") parts.push(`role=${encodeURIComponent(role)}`);
     if (status !== "all") parts.push(`status=${encodeURIComponent(status)}`);
+    if (runFilter) parts.push(`run_id=${encodeURIComponent(runFilter)}`);
     return parts.join("&");
-  }, [projectId, role, status]);
+  }, [projectId, role, status, runFilter]);
+
+  const clearRunFilter = useCallback(() => {
+    const next = new URLSearchParams(search);
+    next.delete("run");
+    setSearch(next, { replace: true });
+  }, [search, setSearch]);
 
   const fetchTurns = useCallback(
     () => client.get<TurnRow[]>(`/telemetry/turns?${query}`),
@@ -436,6 +445,24 @@ function RawTimelineTab({ projectId }: { projectId: number }) {
 
   return (
     <div className="space-y-3">
+      {runFilter && (
+        <div className="flex items-center gap-2">
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-xs text-blue-700"
+            data-testid="run-filter-chip"
+          >
+            run: <span className="font-mono">{runFilter}</span>
+            <button
+              type="button"
+              onClick={clearRunFilter}
+              className="ml-1 text-blue-500 hover:text-blue-700"
+              aria-label="Clear run filter"
+            >
+              ×
+            </button>
+          </span>
+        </div>
+      )}
       <div className="flex items-center gap-3">
         <label className="text-xs text-slate-500">Role</label>
         <select
