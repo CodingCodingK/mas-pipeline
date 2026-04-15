@@ -84,17 +84,17 @@ def _wait_for_reply(client: httpx.Client, session_id: int, baseline: int,
     return []  # unreachable
 
 
-def _tool_calls_for_session(client: httpx.Client, session_id: int) -> list[dict]:
-    """Pull tool_call events for a chat session via the telemetry timeline.
-
-    Chat sessions use run_id `session-<id>` (see SessionRunner.start).
-    """
+def _session_timeline(client: httpx.Client, session_id: int) -> list[dict]:
+    """Full telemetry timeline for a chat session (run_id=session-<id>)."""
     r = client.get(f"/api/telemetry/runs/session-{session_id}/timeline")
     if r.status_code == 404:
         return []
     r.raise_for_status()
-    events = r.json()
-    return [e for e in events if e.get("event_type") == "tool_call"]
+    return r.json()
+
+
+def _tool_calls_for_session(client: httpx.Client, session_id: int) -> list[dict]:
+    return [e for e in _session_timeline(client, session_id) if e.get("event_type") == "tool_call"]
 
 
 def main() -> None:
@@ -173,19 +173,20 @@ def main() -> None:
             _warn(f"{good_rel} not on disk here — expected on server filesystem, "
                   f"not the host running this script. Relying on telemetry check.")
 
+        # args_preview is truncated to 30 chars by telemetry, so match on tool_name +
+        # success; session isolation makes this unambiguous within one test run.
         tcs = _tool_calls_for_session(client, session_id)
         write_a = [
             e for e in tcs
             if (e.get("payload") or {}).get("tool_name") == "write_file"
-            and good_rel in json.dumps(e.get("payload") or {})
+            and (e.get("payload") or {}).get("success")
         ]
         if not write_a:
-            _fail(f"no write_file tool_call matched {good_rel}. "
-                  f"Seen tools: {sorted({(e['payload'] or {}).get('tool_name') for e in tcs})}")
-        ok_a = [e for e in write_a if (e["payload"] or {}).get("success")]
-        if not ok_a:
-            _fail(f"write_file({good_rel}) did not succeed in telemetry: {write_a[0]['payload']}")
-        _ok(f"write_file({good_rel}) succeeded ({len(ok_a)} call(s))")
+            all_wf = [e for e in tcs if (e.get("payload") or {}).get("tool_name") == "write_file"]
+            _fail(f"no successful write_file tool_call in session {session_id}. "
+                  f"write_file calls seen: {len(all_wf)}; last payload: "
+                  f"{all_wf[-1].get('payload') if all_wf else None}")
+        _ok(f"write_file succeeded ({len(write_a)} call(s))")
 
         # ── B. Denied write ──
         _step("B", f"assistant writes to {bad_rel}")
@@ -214,25 +215,34 @@ def main() -> None:
             _ok(f"{bad_rel} does not exist on disk")
 
         # ── C. Telemetry denial marker ──
+        # Permission denial fires at the pre_tool_use hook, BEFORE the tool
+        # executes. The denial lands in a `hook_event` row with decision=deny
+        # and rule_matched containing the rule text — not in a `tool_call` row.
         _step("C", "Telemetry: permission_denied marker")
-        tcs2 = _tool_calls_for_session(client, session_id)
-        write_b = [
-            e for e in tcs2
-            if (e.get("payload") or {}).get("tool_name") == "write_file"
-            and bad_rel in json.dumps(e.get("payload") or {})
-        ]
-        if not write_b:
-            _fail(f"no write_file tool_call matched {bad_rel}")
+        events = _session_timeline(client, session_id)
         denied = []
-        for e in write_b:
+        for e in events:
+            if e.get("event_type") != "hook_event":
+                continue
             p = e.get("payload") or {}
-            err = (p.get("error_msg") or p.get("output") or "").lower()
-            if (not p.get("success")) and ("deny" in err or "permission" in err or "denied" in err):
+            if p.get("hook_type") != "pre_tool_use":
+                continue
+            if p.get("decision") != "deny":
+                continue
+            rule = (p.get("rule_matched") or "").lower()
+            if "write_file" in rule or "src/" in rule:
                 denied.append(e)
         if not denied:
-            _fail(f"no permission_denied marker on write_file({bad_rel}). "
-                  f"Last payload: {write_b[-1].get('payload')}")
-        _ok(f"{len(denied)} denied call(s) with permission marker")
+            all_hooks = [
+                (e.get("payload") or {})
+                for e in events
+                if e.get("event_type") == "hook_event"
+            ]
+            _fail(f"no pre_tool_use deny hook_event in session {session_id}. "
+                  f"Hook events seen: {len(all_hooks)}; decisions: "
+                  f"{[h.get('decision') for h in all_hooks]}")
+        _ok(f"{len(denied)} pre_tool_use deny hook(s) matched (rule: "
+            f"{(denied[0].get('payload') or {}).get('rule_matched')})")
 
         # ── D. github MCP best-effort ──
         if args.skip_d:
