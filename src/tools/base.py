@@ -36,6 +36,13 @@ class ToolContext:
     # Sub-agents inherit them so nested spawns route notifications to the same session.
     session_id: int | None = None
     conversation_id: int | None = None
+    # ClawBot per-chat addressing — only populated for sessions whose role is
+    # clawbot. Used exclusively by persona_write to resolve the override
+    # target `personas/<channel>/<chat_id>/SOUL.md`; every other tool should
+    # ignore these fields. Spawned sub-agents do NOT inherit them (persona is
+    # a clawbot-only concept).
+    channel: str | None = None
+    chat_id: str | None = None
 
 
 class Tool(ABC):

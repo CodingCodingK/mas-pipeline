@@ -65,7 +65,9 @@ async def create_clawbot_agent(
         )
 
     # Patch 1: append bootstrap soul content to the system message.
-    soul = load_soul_bootstrap()
+    #          Per-chat override (personas/<channel>/<chat_id>/SOUL.md) wins
+    #          over the baseline config/clawbot/SOUL.md if it exists.
+    soul = load_soul_bootstrap(channel=channel, chat_id=chat_id)
     if soul:
         state.messages[0]["content"] = (
             f"{state.messages[0]['content']}\n\n---\n\n{soul}"

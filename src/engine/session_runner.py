@@ -167,6 +167,11 @@ class SessionRunner:
         # Tag the tool_context so spawn_agent can route notifications back here.
         self.state.tool_context.session_id = self.session_id
         self.state.tool_context.conversation_id = self.conversation_id
+        # ClawBot: hand channel/chat_id to tools like persona_write that
+        # resolve per-chat override paths. Other roles leave these None.
+        if role == "clawbot":
+            self.state.tool_context.channel = self._channel
+            self.state.tool_context.chat_id = self._clawbot_chat_id
 
         # Mark how many messages from history are already in PG so the main
         # loop only persists what gets newly added during this run.

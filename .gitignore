@@ -35,6 +35,9 @@ uploads/*
 projects/*
 !projects/.gitkeep
 
+# Clawbot per-chat persona overrides (LLM-writable, NOT dev-authored)
+config/clawbot/personas/
+
 # Docker
 docker-compose.override.yml
 
