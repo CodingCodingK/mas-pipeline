@@ -9,7 +9,14 @@ import FilesTab from "@/components/FilesTab";
 import PipelineTab from "@/components/PipelineTab";
 import RunsTab from "@/components/RunsTab";
 
-type TabKey = "agents" | "runs" | "files" | "dashboard" | "pipeline" | "chat";
+type TabKey =
+  | "agents"
+  | "runs"
+  | "files"
+  | "dashboard"
+  | "pipeline"
+  | "chat"
+  | "observability";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "dashboard", label: "Dashboard" },
@@ -18,6 +25,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "runs", label: "Runs" },
   { key: "files", label: "Files" },
   { key: "chat", label: "Chat" },
+  { key: "observability", label: "Observability" },
 ];
 
 export default function ProjectDetailPage() {
@@ -26,7 +34,15 @@ export default function ProjectDetailPage() {
   const [search, setSearch] = useSearchParams();
   const nav = useNavigate();
   const raw = search.get("tab");
-  const validTabs: TabKey[] = ["agents", "runs", "files", "dashboard", "pipeline", "chat"];
+  const validTabs: TabKey[] = [
+    "agents",
+    "runs",
+    "files",
+    "dashboard",
+    "pipeline",
+    "chat",
+    "observability",
+  ];
   const active: TabKey = validTabs.includes(raw as TabKey)
     ? (raw as TabKey)
     : "dashboard";
@@ -66,11 +82,15 @@ export default function ProjectDetailPage() {
                 <button
                   key={t.key}
                   type="button"
-                  onClick={() =>
-                    t.key === "chat"
-                      ? nav(`/projects/${projectId}/chat`)
-                      : setSearch({ tab: t.key })
-                  }
+                  onClick={() => {
+                    if (t.key === "chat") {
+                      nav(`/projects/${projectId}/chat`);
+                    } else if (t.key === "observability") {
+                      nav(`/projects/${projectId}/observability`);
+                    } else {
+                      setSearch({ tab: t.key });
+                    }
+                  }}
                   className={
                     "py-2 px-1 text-sm font-medium " +
                     (isActive

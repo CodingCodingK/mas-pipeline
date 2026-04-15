@@ -6,6 +6,7 @@ import ProjectDetailPage from "./pages/ProjectDetailPage";
 import RunDetailPage from "./pages/RunDetailPage";
 import ChatPage from "./pages/ChatPage";
 import PipelineEditorPage from "./pages/PipelineEditorPage";
+import ObservabilityPage from "./pages/ObservabilityPage";
 import LoginPage from "./pages/LoginPage";
 
 export default function App() {
@@ -36,6 +37,10 @@ export default function App() {
         />
         <Route path="/projects/:id/chat" element={<ChatPage />} />
         <Route path="/projects/:id/chat/:sessionId" element={<ChatPage />} />
+        <Route
+          path="/projects/:id/observability"
+          element={<ObservabilityPage />}
+        />
       </Route>
     </Routes>
   );
