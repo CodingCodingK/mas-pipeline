@@ -84,6 +84,10 @@ function RunDetailPageInner() {
     abortRef.current = ac;
     setStreaming(true);
     setStatus("running");
+    // Wipe history.state immediately so a refresh during the live stream
+    // can't re-trigger this effect and POST a duplicate run. We've already
+    // captured pipelineName/inputText into the closure above.
+    window.history.replaceState(null, "");
     fetchEventStream(
       `/projects/${projectId}/pipelines/${state.pipelineName}/runs?stream=true`,
       {
@@ -97,6 +101,15 @@ function RunDetailPageInner() {
               if (parsed.run_id) {
                 liveRunIdRef.current = parsed.run_id;
                 setLiveRunId(parsed.run_id);
+                // Clear history.state BEFORE the user can refresh. The
+                // browser's History API preserves location.state across a
+                // hard reload, so if we leave {liveStream:true, …} sitting
+                // there and the user hits F5 while still on /runs/pending,
+                // this effect fires again and POSTs a duplicate run. Wipe
+                // the state bag now that the run is created; the current
+                // SSE stream is unaffected because we don't touch the URL
+                // (React Router won't re-render / re-run deps).
+                window.history.replaceState(null, "");
               }
             } catch {
               // malformed started frame — ignore
@@ -183,18 +196,37 @@ function RunDetailPageInner() {
     void loadHistorical();
   }, [loadHistorical]);
 
-  // Re-fetch the graph when SSE events land so node statuses stay fresh.
+  const realRunId = liveRunId ?? (runId && runId !== "pending" ? runId : null);
+
+  // Re-fetch the graph whenever new SSE events land so node statuses stay
+  // fresh. This covers BOTH the pending live-stream path (URL still says
+  // `/runs/pending`, but `liveRunId` has been captured from the `started`
+  // frame) AND the historical/paused path (real URL run id).
   useEffect(() => {
-    if (liveStream || !runId || runId === "pending") return;
+    if (!realRunId) return;
     if (sseEvents.length === 0) return;
-    getRunGraph(runId)
+    getRunGraph(realRunId)
       .then((g) => setGraph(g))
       .catch(() => {
         /* graph may not be ready yet */
       });
-  }, [sseEvents.length, liveStream, runId]);
+  }, [sseEvents.length, realRunId]);
 
-  const realRunId = liveRunId ?? (runId && runId !== "pending" ? runId : null);
+  // Whenever SSE flips status to a state-changed value, refresh the REST
+  // detail so detail.paused_at / paused_output / final_output catch up.
+  // Without this, ResumePanel (gated on detail?.paused_at) never appears
+  // on the 2nd/3rd pause because detail is frozen at load-time.
+  useEffect(() => {
+    if (!realRunId) return;
+    if (status !== "paused" && status !== "completed" && status !== "failed") return;
+    client
+      .get<RunDetail>(`/runs/${realRunId}`)
+      .then((d) => setDetail(d))
+      .catch(() => {
+        /* detail may not be ready yet */
+      });
+  }, [status, realRunId]);
+
   const graphNodes = graph?.nodes ?? [];
   const graphEdges = graph?.edges ?? [];
 
@@ -223,23 +255,14 @@ function RunDetailPageInner() {
           <span className="text-xs text-blue-600 animate-pulse">streaming…</span>
         )}
         <div className="flex-1" />
-        {realRunId && (
-          <div className="flex items-center gap-2 mr-2">
-            <button
-              type="button"
-              onClick={() => void downloadExport(realRunId, "md")}
-              className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
-            >
-              .md
-            </button>
-            <button
-              type="button"
-              onClick={() => void downloadExport(realRunId, "json")}
-              className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
-            >
-              .json
-            </button>
-          </div>
+        {realRunId && status === "completed" && (
+          <button
+            type="button"
+            onClick={() => void downloadExport(realRunId, "md")}
+            className="rounded border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 mr-2"
+          >
+            Download
+          </button>
         )}
         <RunOpsButtons
           runId={realRunId}
@@ -262,7 +285,15 @@ function RunDetailPageInner() {
           runId={realRunId ?? runId!}
           pausedAt={detail.paused_at}
           pausedOutput={detail.paused_output ?? ""}
-          onResumed={loadHistorical}
+          onResumed={() => {
+            // Optimistically flip to "running" so the banner dismisses
+            // immediately. Do NOT refetch detail here: resume is 202
+            // async, backend.status is still "paused" for a beat, and a
+            // GET would overwrite our optimistic value. SSE will drive
+            // the next state change and the status-watching effect
+            // above will refresh detail when it lands.
+            setStatus("running");
+          }}
         />
       )}
 
@@ -284,21 +315,19 @@ function RunDetailPageInner() {
 
       {/* Pipeline DAG — primary view. Pending runs render an empty graph
           with a placeholder; clicking any node opens RunNodeDrawer. */}
-      <section className="relative rounded border border-slate-200 bg-white">
+      <section className="rounded border border-slate-200 bg-white">
         <div className="h-[520px]">
           <RunGraph
             nodes={graphNodes}
             edges={graphEdges}
             onNodeClick={(nodeId) => setSelectedNode(nodeId)}
+            emptyMessage={
+              streaming || status === "running"
+                ? "Waiting for first node to start…"
+                : "Waiting for run to start…"
+            }
           />
         </div>
-        {graphNodes.length === 0 && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="text-sm text-slate-400">
-              Waiting for run to start…
-            </span>
-          </div>
-        )}
       </section>
 
       <RunNodeDrawer

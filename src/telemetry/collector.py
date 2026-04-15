@@ -305,6 +305,7 @@ class TelemetryCollector:
         node_name: str | None = None,
         duration_ms: int | None = None,
         error_msg: str | None = None,
+        turn_id: str | None = None,
     ) -> None:
         if not self._enabled:
             return
@@ -314,6 +315,7 @@ class TelemetryCollector:
             "node_name": node_name,
             "duration_ms": duration_ms,
             "error_msg": _truncate(error_msg, 500) if error_msg else None,
+            "turn_id": turn_id or current_turn_id.get(),
         }
         self._enqueue(self._envelope(EVENT_TYPE_PIPELINE, payload))
 

@@ -82,10 +82,14 @@ def _make_node_fn(
         # Fan-in guard: wait until all declared upstream inputs are ready.
         # LangGraph conditional_edges from multiple parents trigger independently,
         # so this function may be invoked before all parents have written their
-        # outputs. Skip (no state update) until inputs are complete.
+        # outputs. Also treat empty string as "not ready": a reject on an
+        # interrupt upstream writes Command(goto=..._run, update={outputs:{X:""}})
+        # which clears the upstream output; the static edge to downstream nodes
+        # still fires in the same superstep, so without this guard reviewer
+        # would spuriously run on a cleared draft + injected review_feedback.
         current_outputs = state.get("outputs") or {}
         for inp in node.input:
-            if inp not in current_outputs:
+            if not current_outputs.get(inp):
                 return {}
 
         # Also skip if we already produced our output (re-trigger from late parent)
@@ -94,10 +98,11 @@ def _make_node_fn(
             return {}
 
         import time as _time
+        import uuid as _uuid
 
         from src.engine.pipeline import _build_task_description, _run_node
         from src.engine.run import emit_pipeline_event
-        from src.telemetry import get_collector
+        from src.telemetry import current_turn_id, get_collector
 
         # Build task description from upstream outputs
         task_desc = _build_task_description(node, state["outputs"], state["user_input"])
@@ -108,6 +113,13 @@ def _make_node_fn(
             task_desc += f"\n\n--- 审阅反馈（请根据此反馈修改） ---\n{review_fb}\n--- 审阅反馈结束 ---"
 
         collector = get_collector()
+
+        # Set current_turn_id so nested llm_call/tool_call/hook_event emitted
+        # inside _run_node inherit parent_turn_id — makes Trace tree view
+        # work for pipeline runs the same way it does for chat.
+        node_turn_id = _uuid.uuid4().hex
+        turn_token = current_turn_id.set(node_turn_id)
+
         emit_pipeline_event(state["run_id"], {
             "type": "node_start",
             "node": node.name,
@@ -118,6 +130,7 @@ def _make_node_fn(
             pipeline_event_type="node_start",
             pipeline_name=pipeline_name,
             node_name=node.name,
+            turn_id=node_turn_id,
         )
         node_started_at = _time.monotonic()
 
@@ -145,6 +158,7 @@ def _make_node_fn(
                 pipeline_name=pipeline_name,
                 node_name=node.name,
                 duration_ms=duration_ms,
+                turn_id=node_turn_id,
             )
             return {"outputs": {node.output: output}, "review_feedback": ""}
         except Exception as exc:
@@ -161,9 +175,12 @@ def _make_node_fn(
                 node_name=node.name,
                 duration_ms=duration_ms,
                 error_msg=str(exc),
+                turn_id=node_turn_id,
             )
             collector.record_error(source="pipeline", exc=exc)
             return {"error": str(exc)}
+        finally:
+            current_turn_id.reset(turn_token)
 
     node_fn.__name__ = node.name
     return node_fn

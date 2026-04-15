@@ -21,6 +21,7 @@ export interface AgentItem {
   description: string;
   model_tier: string;
   tools: string[];
+  readonly: boolean;
 }
 
 export interface ToolItem {

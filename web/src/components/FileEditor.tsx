@@ -18,6 +18,7 @@ interface Props {
   name: string;
   isNew: boolean;
   source?: Source;
+  readonly?: boolean;
   onSaved: () => void;
   onClose: () => void;
 }
@@ -38,6 +39,7 @@ export default function FileEditor({
   name,
   isNew,
   source,
+  readonly = false,
   onSaved,
   onClose,
 }: Props) {
@@ -145,6 +147,14 @@ export default function FileEditor({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="text-xs uppercase text-slate-500">{kind}</span>
+          {readonly && (
+            <span
+              className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-mono text-slate-700"
+              title="This agent is protected and cannot be edited."
+            >
+              🔒 read-only
+            </span>
+          )}
           {isNew ? (
             <input
               type="text"
@@ -182,6 +192,7 @@ export default function FileEditor({
               scrollBeyondLastLine: false,
               renderLineHighlight: "line",
               padding: { top: 8 },
+              readOnly: readonly,
             }}
           />
         </Suspense>
@@ -206,36 +217,38 @@ export default function FileEditor({
           )}
         </div>
       )}
-      <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          disabled={saving || nameState.length === 0}
-          onClick={save}
-          className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
-        >
-          {saving ? "Saving…" : "Save (project layer)"}
-        </button>
-        {!isNew && source !== "global" && (
+      {!readonly && (
+        <div className="mt-3 flex gap-2">
           <button
             type="button"
-            disabled={saving}
-            onClick={remove}
-            className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 disabled:opacity-50"
+            disabled={saving || nameState.length === 0}
+            onClick={save}
+            className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
           >
-            {source === "project-override" ? "Delete project override" : "Delete"}
+            {saving ? "Saving…" : "Save (project layer)"}
           </button>
-        )}
-        {!isNew && source !== "project-only" && source !== "project" && (
-          <button
-            type="button"
-            disabled={saving}
-            onClick={removeGlobal}
-            className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
-          >
-            Delete global
-          </button>
-        )}
-      </div>
+          {!isNew && source !== "global" && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={remove}
+              className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 disabled:opacity-50"
+            >
+              {source === "project-override" ? "Delete project override" : "Delete"}
+            </button>
+          )}
+          {!isNew && source !== "project-only" && source !== "project" && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={removeGlobal}
+              className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
+            >
+              Delete global
+            </button>
+          )}
+        </div>
+      )}
       {kind === "agent" && (
         <p className="mt-3 text-xs text-slate-400">
           Changes take effect on new sessions only. Existing chat sessions

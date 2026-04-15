@@ -30,6 +30,7 @@ export interface RunGraphNode {
   id: string;
   name: string;
   role: string;
+  output: string;
   status: RunNodeStatus;
   started_at: string | null;
   finished_at: string | null;
@@ -46,6 +47,7 @@ interface Props {
   nodes: RunGraphNode[];
   edges: RunGraphEdge[];
   onNodeClick?: (nodeId: string) => void;
+  emptyMessage?: string;
 }
 
 // ── Status → color class (spec run-dag-visualization) ─────
@@ -156,7 +158,7 @@ function layout(
 
 // ── Main component ────────────────────────────────────────
 
-export default function RunGraph({ nodes, edges, onNodeClick }: Props) {
+export default function RunGraph({ nodes, edges, onNodeClick, emptyMessage }: Props) {
   const laid = useMemo(() => layout(nodes, edges), [nodes, edges]);
   const [rfNodes, setRfNodes] = useNodesState(laid.rfNodes);
   const [rfEdges, setRfEdges] = useEdgesState(laid.rfEdges);
@@ -174,7 +176,7 @@ export default function RunGraph({ nodes, edges, onNodeClick }: Props) {
   if (nodes.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-slate-400">
-        No nodes to display
+        {emptyMessage ?? "No nodes to display"}
       </div>
     );
   }

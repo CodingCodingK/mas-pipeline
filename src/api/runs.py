@@ -403,6 +403,7 @@ class GraphNode(BaseModel):
     id: str
     name: str
     role: str
+    output: str
     status: str
     started_at: str | None = None
     finished_at: str | None = None
@@ -512,6 +513,7 @@ async def get_run_graph(run_id: str) -> dict:
                 id=node.name,
                 name=node.name,
                 role=node.role,
+                output=node.output,
                 status=status,
                 started_at=(str(row.created_at) if row and row.created_at else None),
                 finished_at=(

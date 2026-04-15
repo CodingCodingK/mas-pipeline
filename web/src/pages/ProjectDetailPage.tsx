@@ -25,7 +25,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "runs", label: "Runs" },
   { key: "files", label: "Files" },
   { key: "chat", label: "Chat" },
-  { key: "observability", label: "Observability" },
+  { key: "observability", label: "Insights" },
 ];
 
 export default function ProjectDetailPage() {

@@ -28,14 +28,22 @@ function getPayloadNode(ev: TimelineEvent): string | null {
   return typeof n === "string" ? n : null;
 }
 
+function getPayloadStr(ev: TimelineEvent, key: string): string | null {
+  const v = (ev.payload ?? {})[key];
+  return typeof v === "string" ? v : null;
+}
+
 function getNumber(obj: Record<string, unknown>, key: string): number {
   const v = obj[key];
   return typeof v === "number" ? v : 0;
 }
 
-function formatDuration(ms: number | null): string {
-  if (ms === null || ms === undefined) return "—";
-  if (ms < 1000) return `${ms}ms`;
+function formatDuration(ms: number | null | undefined): string {
+  // null/undefined = not recorded. 0 is a real measurement (e.g. micro
+  // compact running sub-millisecond) and must still render as "0ms".
+  if (ms == null) return "—";
+  if (ms === 0) return "<1ms";
+  if (ms < 100) return `${ms}ms`;
   const s = ms / 1000;
   if (s < 60) return `${s.toFixed(1)}s`;
   const m = Math.floor(s / 60);
@@ -96,7 +104,21 @@ export default function RunNodeDrawer({
 
   const filteredTimeline = useMemo(() => {
     if (!nodeName) return [];
-    return timeline.filter((ev) => getPayloadNode(ev) === nodeName);
+    // First pass: collect turn_ids belonging to this node from pipeline_event
+    // rows (the only events carrying node_name). llm_call / tool_call events
+    // only carry turn_id / parent_turn_id, so we need this set to reach them.
+    const turnIds = new Set<string>();
+    for (const ev of timeline) {
+      if (getPayloadNode(ev) !== nodeName) continue;
+      const tid = getPayloadStr(ev, "turn_id");
+      if (tid) turnIds.add(tid);
+    }
+    return timeline.filter((ev) => {
+      if (getPayloadNode(ev) === nodeName) return true;
+      const tid = getPayloadStr(ev, "turn_id");
+      const pid = getPayloadStr(ev, "parent_turn_id");
+      return (tid && turnIds.has(tid)) || (pid && turnIds.has(pid));
+    });
   }, [timeline, nodeName]);
 
   const rollup = useMemo(() => {
@@ -133,13 +155,12 @@ export default function RunNodeDrawer({
 
   if (!isOpen || !nodeName) return null;
 
+  const graphNode = graph?.nodes.find((n) => n.name === nodeName);
   const projectId = detail?.project_id ?? null;
-  const output = detail?.outputs?.[nodeName] ?? "";
+  const output = detail?.outputs?.[graphNode?.output ?? ""] ?? "";
   const outputTruncated = output.length > OUTPUT_TRUNCATE;
   const displayOutput =
     outputTruncated && !showFullOutput ? output.slice(0, OUTPUT_TRUNCATE) : output;
-
-  const graphNode = graph?.nodes.find((n) => n.name === nodeName);
 
   return (
     <div
@@ -187,8 +208,47 @@ export default function RunNodeDrawer({
         {!loading && !error && (
           <div className="px-5 py-4 space-y-4">
             <details open className="rounded border border-slate-200">
-              <summary className="cursor-pointer px-3 py-2 text-sm font-semibold bg-slate-50">
-                Output
+              <summary className="flex cursor-pointer items-center justify-between px-3 py-2 text-sm font-semibold bg-slate-50">
+                <span>Output</span>
+                {output.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const blob = new Blob([output], {
+                        type: "text/plain;charset=utf-8",
+                      });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `${runId}_${nodeName}.md`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      URL.revokeObjectURL(url);
+                    }}
+                    title="Download output"
+                    aria-label="Download output"
+                    className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                  </button>
+                )}
               </summary>
               <div className="p-3">
                 {output.length === 0 ? (
@@ -228,6 +288,7 @@ export default function RunNodeDrawer({
                     <thead>
                       <tr className="text-left text-slate-500 border-b">
                         <th className="py-1 pr-2">ts</th>
+                        <th className="py-1 pr-2">role / node</th>
                         <th className="py-1 pr-2">event</th>
                         <th className="py-1 pr-2">duration</th>
                         <th className="py-1">stop_reason</th>
@@ -237,14 +298,25 @@ export default function RunNodeDrawer({
                       {filteredTimeline.map((ev) => {
                         const dur = ev.payload.duration_ms;
                         const stop = ev.payload.stop_reason;
+                        const role = ev.agent_role;
+                        const pnode = getPayloadNode(ev);
+                        const roleNode =
+                          role && pnode && role !== pnode
+                            ? `${role} / ${pnode}`
+                            : (role ?? pnode ?? "—");
                         return (
                           <tr key={ev.id} className="border-b last:border-b-0">
-                            <td className="py-1 pr-2 font-mono">
+                            <td className="py-1 pr-2 font-mono text-slate-400">
                               {new Date(ev.ts).toLocaleTimeString()}
                             </td>
-                            <td className="py-1 pr-2">{ev.event_type}</td>
+                            <td className="py-1 pr-2 font-mono font-semibold text-slate-800">
+                              {roleNode}
+                            </td>
+                            <td className="py-1 pr-2 text-slate-400">
+                              {ev.event_type}
+                            </td>
                             <td className="py-1 pr-2">
-                              {typeof dur === "number" ? formatDuration(dur) : "—"}
+                              {formatDuration(typeof dur === "number" ? dur : null)}
                             </td>
                             <td className="py-1">
                               {typeof stop === "string" ? stop : "—"}
@@ -314,11 +386,11 @@ export default function RunNodeDrawer({
               to={`/projects/${projectId}/observability?sub=timeline&run=${runId}`}
               className="text-sm text-blue-600 hover:underline"
             >
-              See all events for this run in Observability →
+              Open Trace for this run →
             </Link>
           ) : (
             <span className="text-sm text-slate-400">
-              See all events for this run in Observability →
+              Open Trace for this run →
             </span>
           )}
         </div>

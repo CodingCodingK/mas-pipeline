@@ -7,6 +7,8 @@ schema stays simple.
 
 from __future__ import annotations
 
+import json
+import re
 from collections import defaultdict
 from datetime import datetime
 from typing import Any
@@ -14,6 +16,114 @@ from typing import Any
 from sqlalchemy import text
 
 from src.db import get_session_factory
+
+
+_KEY_RE = re.compile(r'\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*:\s*')
+_LITERAL_RE = re.compile(r"(-?\d+(?:\.\d+)?|true|false|null)")
+_SEP_RE = re.compile(r"\s*,\s*")
+
+
+def _scan_args(text: str) -> list[tuple[str, str]]:
+    """Manually scan a JSON-object prefix, tolerating a truncated tail.
+
+    Unlike json.loads / a strict regex, this walks the string and — if
+    the final value is a string that was truncated mid-content by the
+    collector — still captures whatever prefix is present. Non-string
+    values (numbers, bools, null) must be complete; otherwise we stop.
+    """
+    items: list[tuple[str, str]] = []
+    # Strip optional leading '{'.
+    s = text.lstrip()
+    if s.startswith("{"):
+        s = s[1:]
+    i = 0
+    n = len(s)
+    while i < n:
+        m = _KEY_RE.match(s, i)
+        if not m:
+            break
+        key = m.group(1)
+        i = m.end()
+        if i >= n:
+            items.append((key, ""))
+            break
+        if s[i] == '"':
+            # String value — scan until the closing unescaped quote, OR
+            # end-of-string (truncated).
+            i += 1
+            start = i
+            while i < n:
+                if s[i] == "\\" and i + 1 < n:
+                    i += 2
+                    continue
+                if s[i] == '"':
+                    break
+                i += 1
+            items.append((key, s[start:i]))
+            if i < n and s[i] == '"':
+                i += 1
+            sep = _SEP_RE.match(s, i)
+            if sep:
+                i = sep.end()
+            else:
+                break
+        else:
+            lit = _LITERAL_RE.match(s, i)
+            if not lit:
+                break
+            items.append((key, lit.group(1)))
+            i = lit.end()
+            sep = _SEP_RE.match(s, i)
+            if sep:
+                i = sep.end()
+            else:
+                break
+    return items
+
+
+def _format_args(raw: Any) -> tuple[str | None, str | None]:
+    """Render a tool_call args_preview as two `key: value, ...` strings.
+
+    Returns ``(short, full)``:
+
+    - ``short`` caps each value at 60 chars with a trailing ``…`` — shown
+      directly in the Raw Timeline cell.
+    - ``full`` caps each value at 400 chars — shown in the hover tooltip
+      so users can inspect without leaving the page.
+
+    args_preview is stored as JSON that may be truncated mid-value by the
+    collector, so we first try json.loads and fall back to a manual
+    scanner that captures whatever prefix survived the truncation.
+    """
+    if not raw:
+        return None, None
+    s = raw if isinstance(raw, str) else str(raw)
+
+    items: list[tuple[str, str]] = []
+    try:
+        parsed = json.loads(s)
+        if isinstance(parsed, dict):
+            for k, v in parsed.items():
+                items.append(
+                    (
+                        str(k),
+                        v if isinstance(v, str) else json.dumps(v, ensure_ascii=False),
+                    )
+                )
+    except (ValueError, TypeError):
+        items = _scan_args(s)
+
+    if not items:
+        return None, None
+
+    def _render(cap: int) -> str:
+        parts = []
+        for k, v in items:
+            vv = v if len(v) <= cap else v[: cap - 1] + "…"
+            parts.append(f"{k}: {vv}")
+        return ", ".join(parts)
+
+    return _render(60), _render(400)
 
 
 async def _fetch_run_events(run_id: str) -> list[dict[str, Any]]:
@@ -539,7 +649,7 @@ async def get_project_aggregate(
 
     clauses = [
         "ts >= :since",
-        "event_type IN ('llm_call','agent_turn','error')",
+        "event_type IN ('llm_call','agent_turn','error','pipeline_event')",
     ]
     params: dict[str, Any] = {"since": since}
     if project_id is not None:
@@ -562,9 +672,17 @@ async def get_project_aggregate(
     tok_in: dict[str, int] = _dd(int)
     tok_out: dict[str, int] = _dd(int)
     tok_cache: dict[str, int] = _dd(int)
-    status_b: dict[str, dict[str, int]] = _dd(lambda: {"done": 0, "interrupt": 0, "error": 0, "idle_exit": 0})
-    turn_count: dict[str, int] = _dd(int)
-    err_count: dict[str, int] = _dd(int)
+    status_b: dict[str, dict[str, int]] = _dd(
+        lambda: {
+            "done": 0,
+            "interrupt": 0,
+            "error": 0,
+            "idle_exit": 0,
+            "pipeline_failed": 0,
+        }
+    )
+    turn_count: dict[str, int] = _dd(int)  # agent_turn + pipeline_start (denominator)
+    err_count: dict[str, int] = _dd(int)   # error events + pipeline_failed (numerator)
 
     for r in rows:
         ts = r["ts"]
@@ -590,6 +708,15 @@ async def get_project_aggregate(
                 status_b[key]["done"] += 1
         elif etype == "error":
             err_count[key] += 1
+        elif etype == "pipeline_event":
+            pet = p.get("pipeline_event_type")
+            if pet == "pipeline_start":
+                # denominator: every pipeline invocation counts as an
+                # execution attempt alongside agent_turn.
+                turn_count[key] += 1
+            elif pet == "pipeline_failed":
+                err_count[key] += 1
+                status_b[key]["pipeline_failed"] += 1
 
     all_keys = sorted(
         set(cost_b) | set(missing_pricing_b) | set(tok_in) | set(status_b) | set(err_count)
@@ -640,54 +767,234 @@ async def list_project_turns(
     run_id: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """Flat list of recent agent_turn events, newest first.
+    """Flat list of recent telemetry events, newest first.
+
+    Without ``run_id`` this returns only ``agent_turn`` events (the default
+    Observability Raw Timeline behavior for chat sessions). When ``run_id``
+    is supplied the filter widens to ALL event types for that run, so a
+    deep-link from RunDetailPage shows llm_call / tool_call / pipeline_event
+    rows as well — pipeline runs don't emit agent_turn.
 
     Filters:
         project_id — restrict to one project
-        role       — filter by telemetry_events.agent_role
+        role       — filter by telemetry_events.agent_role (agent_turn only)
         status     — filter by payload.stop_reason (done/interrupt/error/idle_exit)
-        run_id     — restrict to a single pipeline run
+        run_id     — restrict to a single pipeline run (widens event_type filter)
     """
-    clauses = ["event_type = 'agent_turn'"]
-    params: dict[str, Any] = {"limit": limit}
-    if project_id is not None:
-        clauses.append("project_id = :project_id")
-        params["project_id"] = project_id
-    if role is not None:
-        clauses.append("agent_role = :role")
-        params["role"] = role
-    if status is not None:
-        clauses.append("(payload->>'stop_reason') = :status")
-        params["status"] = status
-    if run_id is not None:
-        clauses.append("run_id = :run_id")
-        params["run_id"] = run_id
-
-    sql = (
-        "SELECT ts, project_id, run_id, session_id, agent_role, payload "
-        "FROM telemetry_events "
-        f"WHERE {' AND '.join(clauses)} "
-        "ORDER BY ts DESC LIMIT :limit"
-    )
     factory = get_session_factory()
-    async with factory() as session:
-        result = await session.execute(text(sql), params)
-        rows = [dict(r) for r in result.mappings().all()]
+
+    if run_id is not None:
+        # Run scope: fetch ALL event types for that run in one query so the
+        # Trace tree view has node_start roots + their llm/tool children.
+        clauses = ["run_id = :run_id"]
+        params: dict[str, Any] = {"limit": limit, "run_id": run_id}
+        if project_id is not None:
+            clauses.append("project_id = :project_id")
+            params["project_id"] = project_id
+        sql = (
+            "SELECT ts, event_type, project_id, run_id, session_id, agent_role, payload "
+            "FROM telemetry_events "
+            f"WHERE {' AND '.join(clauses)} "
+            "ORDER BY ts ASC LIMIT :limit"
+        )
+        async with factory() as session:
+            result = await session.execute(text(sql), params)
+            rows = [dict(r) for r in result.mappings().all()]
+    else:
+        # Chat scope: two-step fetch.
+        #   Step 1 — agent_turn roots with role/status filters applied.
+        #   Step 2 — their children (llm_call/tool_call/hook_event/compact/
+        #            error) pulled by parent_turn_id IN (...) so the tree
+        #            view has leaves for the returned turns.
+        clauses = ["event_type = 'agent_turn'"]
+        params = {"limit": limit}
+        if project_id is not None:
+            clauses.append("project_id = :project_id")
+            params["project_id"] = project_id
+        if role is not None:
+            clauses.append("agent_role = :role")
+            params["role"] = role
+        if status is not None:
+            clauses.append("(payload->>'stop_reason') = :status")
+            params["status"] = status
+        sql = (
+            "SELECT ts, event_type, project_id, run_id, session_id, agent_role, payload "
+            "FROM telemetry_events "
+            f"WHERE {' AND '.join(clauses)} "
+            "ORDER BY ts DESC LIMIT :limit"
+        )
+        async with factory() as session:
+            result = await session.execute(text(sql), params)
+            root_rows = [dict(r) for r in result.mappings().all()]
+
+        turn_ids = [
+            (r.get("payload") or {}).get("turn_id")
+            for r in root_rows
+            if (r.get("payload") or {}).get("turn_id")
+        ]
+        child_rows: list[dict[str, Any]] = []
+        if turn_ids:
+            async with factory() as session:
+                child_result = await session.execute(
+                    text(
+                        "SELECT ts, event_type, project_id, run_id, session_id, "
+                        "agent_role, payload FROM telemetry_events "
+                        "WHERE event_type IN ('llm_call','tool_call','hook_event','compact','error') "
+                        "AND (payload->>'parent_turn_id') = ANY(:turn_ids) "
+                        "ORDER BY ts ASC"
+                    ),
+                    {"turn_ids": turn_ids},
+                )
+                child_rows = [dict(r) for r in child_result.mappings().all()]
+        rows = root_rows + child_rows
+        # Display order: chronological ASC so the timeline reads top→bottom
+        # in the order things happened. Step 1 still uses DESC LIMIT to
+        # pick the N most recent turn roots, but we re-sort the merged set
+        # here so the frontend tree builder gets ascending input.
+        def _ts_key(r: dict[str, Any]) -> str:
+            t = r.get("ts")
+            return t.isoformat() if isinstance(t, datetime) else ""
+
+        rows.sort(key=_ts_key)
 
     out: list[dict[str, Any]] = []
     for r in rows:
         p = r.get("payload") or {}
+        et = r.get("event_type")
+
+        # Per-event-type projection into the agent_turn-shaped row the UI
+        # expects. Each branch fills label, tokens, previews and status
+        # from whatever the payload actually has.
+        label: str | None = r.get("agent_role")
+        input_tokens: int | None = None
+        output_tokens: int | None = None
+        input_preview: str | None = None
+        input_preview_full: str | None = None
+        output_preview: str | None = None
+        duration_ms = p.get("duration_ms")
+        stop_reason: str | None = None
+        # Raw provider/event-specific reason before normalization. The UI
+        # uses this to classify rows (e.g. pipeline_* vs node_* lifecycle)
+        # after stop_reason has been collapsed to a semantic label.
+        subtype: str | None = None
+        # turn_id / parent_turn_id drive the Trace tree view. Each event
+        # type stores them in different places (or not at all for leaves).
+        turn_id: str | None = None
+        parent_turn_id: str | None = p.get("parent_turn_id")
+
+        if et == "agent_turn":
+            input_tokens = p.get("input_tokens")
+            output_tokens = p.get("output_tokens")
+            input_preview = p.get("input_preview")
+            output_preview = p.get("output_preview")
+            stop_reason = p.get("stop_reason")
+            turn_id = p.get("turn_id")
+        elif et == "llm_call":
+            label = label or p.get("model")
+            input_tokens = p.get("input_tokens")
+            output_tokens = p.get("output_tokens")
+            duration_ms = p.get("latency_ms") or duration_ms
+            cost = p.get("cost_usd")
+            output_preview = (
+                f"${cost:.4f}" if isinstance(cost, (int, float)) else None
+            )
+            # Normalize provider-native finish_reason to a semantic label:
+            # OpenAI uses stop/length/tool_calls, Anthropic uses
+            # end_turn/max_tokens/tool_use. Raw values confuse the UI —
+            # "stop" reads like "cancelled" when it actually means "ok".
+            fr = p.get("finish_reason")
+            if fr in ("stop", "end_turn"):
+                stop_reason = "ok"
+            elif fr in ("length", "max_tokens"):
+                stop_reason = "truncated"
+            elif fr in ("tool_calls", "tool_use"):
+                stop_reason = "tool_use"
+            else:
+                stop_reason = fr
+            turn_id = p.get("turn_id")
+        elif et == "tool_call":
+            label = label or p.get("tool_name")
+            short, full = _format_args(p.get("args_preview"))
+            input_preview = short
+            input_preview_full = full
+            err = p.get("error_msg")
+            output_preview = str(err)[:160] if err else None
+            stop_reason = "ok" if p.get("success") else (p.get("error_type") or "error")
+        elif et == "pipeline_event":
+            label = label or p.get("node_name")
+            err = p.get("error_msg")
+            if err:
+                output_preview = str(err)[:160]
+            # Normalize lifecycle raw values to "what happened" semantics.
+            # node_end / pipeline_end → ok, *_failed → failed, etc. The
+            # event_type column already says "pipeline_event", so the
+            # status column should carry the outcome, not repeat the type.
+            pet = p.get("pipeline_event_type")
+            subtype = pet
+            if pet in ("node_end", "pipeline_end"):
+                stop_reason = "ok"
+            elif pet in ("node_failed", "pipeline_failed"):
+                stop_reason = "failed"
+            elif pet == "pipeline_paused":
+                stop_reason = "paused"
+            elif pet == "pipeline_resumed":
+                stop_reason = "resumed"
+            elif pet in ("node_start", "pipeline_start"):
+                stop_reason = "started"
+            else:
+                stop_reason = pet
+            # node_start/node_end/node_failed share a turn_id per node —
+            # this becomes the root of that node's Trace subtree.
+            turn_id = p.get("turn_id")
+        elif et == "hook_event":
+            label = label or p.get("hook_type")
+            rm = p.get("rule_matched")
+            input_preview = rm if rm else None
+            stop_reason = p.get("decision")
+            duration_ms = p.get("latency_ms") or duration_ms
+        elif et == "compact":
+            label = label or "compact"
+            before = p.get("before_tokens")
+            after = p.get("after_tokens")
+            if before is not None and after is not None:
+                input_preview = f"{before} → {after}"
+            ratio = p.get("ratio")
+            if isinstance(ratio, (int, float)):
+                output_preview = f"ratio {ratio:.2f}"
+            stop_reason = p.get("trigger")
+            # Surface compact's own timing/token numbers into the shared
+            # TurnRow columns so the trace table doesn't render empty cells.
+            duration_ms = p.get("duration_ms") or duration_ms
+            input_tokens = before
+            output_tokens = after
+        elif et == "error":
+            label = label or "error"
+            input_preview = p.get("source") or None
+            output_preview = (p.get("message") or p.get("error") or None)
+            if output_preview:
+                output_preview = str(output_preview)[:160]
+            stop_reason = p.get("kind") or "error"
+        else:
+            # Unknown event type: best-effort dump of payload keys.
+            label = label or et
+            input_preview = ", ".join(sorted(p.keys()))[:160] if p else None
+
         out.append({
             "ts": r["ts"].isoformat() if isinstance(r["ts"], datetime) else None,
+            "event_type": et,
             "project_id": r.get("project_id"),
             "run_id": r.get("run_id"),
             "session_id": r.get("session_id"),
-            "agent_role": r.get("agent_role"),
-            "stop_reason": p.get("stop_reason"),
-            "duration_ms": p.get("duration_ms"),
-            "input_tokens": p.get("input_tokens"),
-            "output_tokens": p.get("output_tokens"),
-            "input_preview": p.get("input_preview"),
-            "output_preview": p.get("output_preview"),
+            "agent_role": label,
+            "stop_reason": stop_reason,
+            "subtype": subtype,
+            "duration_ms": duration_ms,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "input_preview": input_preview,
+            "input_preview_full": input_preview_full,
+            "output_preview": output_preview,
+            "turn_id": turn_id,
+            "parent_turn_id": parent_turn_id,
         })
     return out

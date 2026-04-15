@@ -134,7 +134,7 @@ class ServerConfig(BaseModel):
 
 class TelemetryConfig(BaseModel):
     enabled: bool = True
-    preview_length: int = 30
+    preview_length: int = 500
     batch_size: int = 100
     flush_interval_sec: float = 2.0
     max_queue_size: int = 10000
