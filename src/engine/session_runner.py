@@ -20,6 +20,7 @@ from src.agent.state import ExitReason
 from src.project.config import get_settings
 from src.streaming.events import StreamEvent
 from src.telemetry import get_collector
+from src.telemetry.collector import current_run_id
 
 if TYPE_CHECKING:
     from src.agent.state import AgentState
@@ -245,6 +246,7 @@ class SessionRunner:
         role = _MODE_TO_ROLE[self.mode]
         exit_reason_kind = "shutdown_exit"
         first_message_seen = False
+        run_id_token = current_run_id.set(f"session-{self.session_id}")
 
         try:
             while True:
@@ -366,6 +368,7 @@ class SessionRunner:
                 project_id=self.project_id,
                 session_id=self.session_id,
             )
+            current_run_id.reset(run_id_token)
             await deregister(self.session_id)
             logger.info("SessionRunner %d exited (%s)", self.session_id, exit_reason_kind)
 
