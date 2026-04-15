@@ -59,13 +59,14 @@ models:
     cache_read_discount_factor: 0.4
 
   # ── OpenAI-compatible proxy (number pool) ──────────────
-  # Provider label used by the adapter when talking to an openai-compatible
-  # endpoint. Real upstream model may vary; these are pool sticker prices.
-  "openai_compat/gpt-5.4":
+  # Router matches "gpt-*" prefix → provider="openai", so the adapter stamps
+  # provider_label="openai" even when we route through a 3rd-party proxy.
+  # These are pool sticker prices for the gpt-5.4 alias used by our number pool.
+  "openai/gpt-5.4":
     input_usd_per_1k_tokens: 0.0025
     output_usd_per_1k_tokens: 0.010
     cache_read_discount_factor: 0.5
-  "openai_compat/gpt-5.4-mini":
+  "openai/gpt-5.4-mini":
     input_usd_per_1k_tokens: 0.00015
     output_usd_per_1k_tokens: 0.0006
     cache_read_discount_factor: 0.5
