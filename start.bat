@@ -60,9 +60,19 @@ echo   Postgres (pgvector)   localhost:5433    user=mas  db=mas_pipeline
 echo   Redis                 localhost:6379
 echo.
 echo ============================================================
+echo   Claw Gateway (Discord / QQ / WeChat bus)
+echo ============================================================
+echo.
+echo   Container name        mas-gateway
+echo   Enable/disable        config/settings.local.yaml : channels.*.enabled
+echo   Tail logs             docker compose logs -f gateway
+echo   Bot token (Discord)   config/settings.local.yaml : channels.discord.token
+echo.
+echo ============================================================
 echo   Useful commands
 echo ============================================================
 echo   docker compose logs -f api web
+echo   docker compose logs -f gateway
 echo   docker compose ps
 echo   stop.bat    ^(stops all services^)
 echo.

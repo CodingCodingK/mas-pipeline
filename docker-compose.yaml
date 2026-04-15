@@ -91,6 +91,35 @@ services:
       retries: 5
       start_period: 15s
 
+  gateway:
+    build: .
+    container_name: mas-gateway
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: mas
+      POSTGRES_PASSWORD: mas_dev_2024
+      POSTGRES_DB: mas_pipeline
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      OPENAI_EMBEDDING_API_BASE: ${OPENAI_EMBEDDING_API_BASE:-http://ollama:11434/v1}
+    env_file:
+      - .env
+    volumes:
+      - ./agents:/app/agents
+      - ./pipelines:/app/pipelines
+      - ./projects:/app/projects
+      - ./uploads:/app/uploads
+      - ./config:/app/config
+      - ./skills:/app/skills
+    command: ["python", "-m", "src.bus.cli"]
+
   web:
     build: ./web
     container_name: mas-web

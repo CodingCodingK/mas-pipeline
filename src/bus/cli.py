@@ -77,7 +77,6 @@ async def run_gateway() -> None:
         bus=bus,
         project_id=channels_cfg.project_id,
         role=channels_cfg.role,
-        max_history=channels_cfg.max_history,
         session_ttl_hours=channels_cfg.session_ttl_hours,
     )
 
