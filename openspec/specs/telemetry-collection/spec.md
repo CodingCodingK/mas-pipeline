@@ -2,9 +2,7 @@
 
 ## Purpose
 Capture structured runtime observability events (LLM calls, tool calls, agent turns, spawns, pipeline transitions, session lifecycle, hooks, errors) into a single append-only store that supports run/session/project rollups, cost accounting, and parent-child tree reconstruction via contextvars.
-
 ## Requirements
-
 ### Requirement: Telemetry event storage schema
 The system SHALL persist telemetry events in a single PG table `telemetry_events` with the following columns:
 - `id BIGSERIAL PRIMARY KEY`
@@ -188,6 +186,10 @@ If `(provider, model)` is not in the pricing table, `cost_usd` SHALL be set to `
 
 The collector SHALL expose a `reload_pricing()` method that atomically swaps in a fresh `PricingTable` read from `pricing_table_path`. A POST `/api/admin/telemetry/reload-pricing` endpoint SHALL invoke this method so operators can update prices without restarting the server. Existing `cost_usd` values in `telemetry_events` are NEVER retroactively recomputed — only new events use the reloaded prices.
 
+**Provider and model label normalization.** The `provider` and `model` strings used as keys into the pricing table SHALL match the strings used by the LLM router and adapter layer when emitting `llm_call` events. When the router or an adapter uses an internal alias (for example `"openai_compat"` for a proxied OpenAI-compatible endpoint) that alias SHALL either (a) be present as a distinct key in `config/pricing.yaml`, or (b) be normalized to the canonical upstream provider string (e.g., `"openai"`) at emit time — whichever approach is chosen, the emitted `llm_call` event's `payload.provider` and `payload.model` SHALL resolve to a present key in the pricing table for all models that are actually invoked in production.
+
+The responsibility for preventing label mismatches rests on the emit side, not on the query side. Aggregation queries SHALL NOT silently coerce `null` cost values to zero; they SHALL preserve `null` through `SUM`/`AVG` operations (SQL default behavior) so that a missing price is distinguishable from a zero cost.
+
 #### Scenario: Cost computed for known model
 - **WHEN** an `llm_call` event is emitted for `(provider='anthropic', model='claude-opus-4-6')` with 1000 input tokens and 500 output tokens, and the pricing table has entries for that model
 - **THEN** `cost_usd` SHALL be populated per the formula
@@ -205,6 +207,18 @@ The collector SHALL expose a `reload_pricing()` method that atomically swaps in 
 - **WHEN** `config/pricing.yaml` is edited to add a new model and `POST /api/admin/telemetry/reload-pricing` is called
 - **THEN** subsequent `llm_call` events for that model SHALL have `cost_usd` populated per the new entry
 - **AND** existing events in `telemetry_events` SHALL retain their original `cost_usd` values
+
+#### Scenario: Proxied OpenAI-compatible model resolves to a pricing entry
+- **GIVEN** the LLM router is configured to call a proxied OpenAI-compatible endpoint and emits `llm_call` events
+- **WHEN** an `llm_call` event is emitted for a model that the proxy serves
+- **THEN** the emitted `payload.provider` and `payload.model` SHALL together resolve to a present key in `config/pricing.yaml`
+- **AND** `cost_usd` SHALL be non-null for a successful call
+
+#### Scenario: Aggregation preserves null costs
+- **GIVEN** a mix of `llm_call` events in the telemetry table, some with `cost_usd=0.012` and others with `cost_usd=null`
+- **WHEN** `GET /api/telemetry/aggregate` computes a windowed cost sum
+- **THEN** the sum SHALL treat `null` values as unknown (standard SQL `SUM` behavior) and SHALL NOT implicitly convert them to zero before summing
+- **AND** a non-null sum SHALL only reflect events whose cost was computed
 
 ### Requirement: Telemetry disabled path is zero-overhead
 When `TelemetryConfig.enabled = False`, the `TelemetryCollector.record_*` methods SHALL return immediately after a single boolean check, performing no allocations, no contextvar reads, and no event construction.
@@ -305,3 +319,4 @@ The drop-oldest-with-rate-limited-warning behavior formerly implemented inside `
 - **THEN** the oldest event in the collector's queue SHALL be dropped
 - **AND** the new event SHALL be enqueued
 - **AND** at most one WARNING log SHALL appear within a 10-second cooldown window
+
