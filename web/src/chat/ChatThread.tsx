@@ -261,7 +261,7 @@ function AssistantMessage() {
         <div
           ref={contentRef}
           className={`rounded-lg px-4 py-2.5 text-sm bg-slate-100 text-slate-900 overflow-hidden relative ${
-            expanded ? "" : "max-h-[32rem]"
+            expanded ? "" : "max-h-[128rem]"
           }`}
           style={{ overflowWrap: "anywhere" }}
         >
