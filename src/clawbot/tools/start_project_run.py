@@ -9,11 +9,6 @@ PendingRunStore (10-minute TTL, single-slot overwrite) and returns a
 
 Single-slot overwrite returns the previous pending (if any) so the LLM
 can broadcast "A's request was replaced by B's".
-
-Same-turn double-call guard: if this tool is called twice in the same
-agent turn, only the first wins — the second returns an error. The guard
-uses a context-local flag keyed by run_id (clawbot's SessionRunner run_id,
-not the pipeline run_id).
 """
 
 from __future__ import annotations
@@ -27,21 +22,6 @@ from src.models import ChatSession, Project
 from src.tools.base import Tool, ToolContext, ToolResult
 
 logger = logging.getLogger(__name__)
-
-_turn_guard: dict[str, bool] = {}
-
-
-def _turn_key(context: ToolContext) -> str:
-    return f"{context.run_id or 'na'}:{context.session_id or 'na'}"
-
-
-def reset_turn_guard_for_tests() -> None:
-    _turn_guard.clear()
-
-
-def clear_turn_guard(context: ToolContext) -> None:
-    """Call at agent-turn boundary to allow a fresh start_project_run."""
-    _turn_guard.pop(_turn_key(context), None)
 
 
 class StartProjectRunTool(Tool):
@@ -74,16 +54,6 @@ class StartProjectRunTool(Tool):
     }
 
     async def call(self, params: dict, context: ToolContext) -> ToolResult:
-        key = _turn_key(context)
-        if _turn_guard.get(key):
-            return ToolResult(
-                output=(
-                    "Error: start_project_run already called in this turn. "
-                    "Only one pending run may be staged per turn."
-                ),
-                success=False,
-            )
-
         try:
             project_id = int(params["project_id"])
         except (KeyError, TypeError, ValueError):
@@ -133,7 +103,6 @@ class StartProjectRunTool(Tool):
             initiator_sender_id=None,
         )
         previous = get_pending_store().set_pending(session_key, pending)
-        _turn_guard[key] = True
 
         lines = [
             f"Pending run staged (awaiting confirmation, 10-min TTL):",

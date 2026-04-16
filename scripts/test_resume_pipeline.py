@@ -67,6 +67,7 @@ async def test_resume_completed():
     mock_cp = _make_mock_checkpointer(has_checkpoint=True)
 
     with (
+        patch("src.engine.pipeline.resolve_pipeline_file", return_value="test.yaml"),
         patch("src.engine.pipeline.load_pipeline") as mock_load,
         patch("src.db.get_checkpointer", new_callable=AsyncMock, return_value=mock_cp),
         patch("src.engine.graph.build_graph", return_value=mock_compiled),
@@ -123,6 +124,7 @@ async def test_resume_no_checkpoint():
     mock_cp = _make_mock_checkpointer(has_checkpoint=False)
 
     with (
+        patch("src.engine.pipeline.resolve_pipeline_file", return_value="test.yaml"),
         patch("src.engine.pipeline.load_pipeline"),
         patch("src.db.get_checkpointer", new_callable=AsyncMock, return_value=mock_cp),
     ):
@@ -162,6 +164,7 @@ async def test_resume_paused_again():
     mock_cp = _make_mock_checkpointer(has_checkpoint=True)
 
     with (
+        patch("src.engine.pipeline.resolve_pipeline_file", return_value="test.yaml"),
         patch("src.engine.pipeline.load_pipeline") as mock_load,
         patch("src.db.get_checkpointer", new_callable=AsyncMock, return_value=mock_cp),
         patch("src.engine.graph.build_graph", return_value=mock_compiled),
@@ -213,6 +216,7 @@ async def test_resume_no_feedback():
     mock_cp = _make_mock_checkpointer(has_checkpoint=True)
 
     with (
+        patch("src.engine.pipeline.resolve_pipeline_file", return_value="test.yaml"),
         patch("src.engine.pipeline.load_pipeline") as mock_load,
         patch("src.db.get_checkpointer", new_callable=AsyncMock, return_value=mock_cp),
         patch("src.engine.graph.build_graph", return_value=mock_compiled),

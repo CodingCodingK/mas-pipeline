@@ -468,7 +468,12 @@ async def resume_pipeline(
 
     from src.db import get_checkpointer
     from src.engine.graph import build_graph
-    from src.engine.run import RunStatus, finish_run, update_run_status
+    from src.engine.run import (
+        RunStatus,
+        emit_pipeline_event,
+        finish_run,
+        update_run_status,
+    )
     from src.mcp.manager import MCPManager
     from src.permissions.types import PermissionMode
     from src.project.config import get_settings
@@ -540,6 +545,11 @@ async def resume_pipeline(
                     "paused_at": None,
                 },
             )
+            emit_pipeline_event(run_id, {
+                "type": "pipeline_end",
+                "status": "failed",
+                "error": str(exc),
+            })
             return PipelineResult(
                 run_id=run_id,
                 status="failed",
@@ -580,6 +590,10 @@ async def resume_pipeline(
                 "status": "paused",
                 "paused_at": paused_at,
             })
+            emit_pipeline_event(run_id, {
+                "type": "pipeline_paused",
+                "paused_at": paused_at,
+            })
 
             return PipelineResult(
                 run_id=run_id,
@@ -618,6 +632,11 @@ async def resume_pipeline(
         await _fire_pipeline_hook(hook_runner, "pipeline_end", {
             "pipeline_name": pipeline_name,
             "run_id": run_id,
+            "status": status,
+            "error": error,
+        })
+        emit_pipeline_event(run_id, {
+            "type": "pipeline_end",
             "status": status,
             "error": error,
         })

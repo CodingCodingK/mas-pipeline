@@ -157,10 +157,34 @@ class ResumeRunTool(Tool):
         elif action == "edit":
             feedback_payload["edited"] = edited_text
 
-        # Fire-and-forget. progress_reporter is already subscribed to this
-        # run's event stream, so the next pause/done/fail will stream back
-        # to chat on its own; we don't await here to keep the clawbot turn
-        # responsive.
+        # Ensure a progress reporter is subscribed so that the next
+        # pause/done/fail streams back to chat. Normally the reporter
+        # created by confirm_pending_run is still alive, but after a
+        # gateway restart the in-memory registry is empty. Re-create
+        # the reporter in that case so the user gets completion feedback.
+        from src.clawbot.reporter_registry import (
+            get_bus,
+            get_reporter,
+            register_reporter,
+            unregister_reporter,
+        )
+
+        if get_reporter(run_id) is None:
+            bus = get_bus()
+            if bus is not None:
+                from src.clawbot.progress_reporter import ChatProgressReporter
+
+                reporter = ChatProgressReporter(
+                    run_id=run_id,
+                    channel=context.channel or "",
+                    chat_id=context.chat_id or "",
+                    conversation_id=context.conversation_id or 0,
+                    bus=bus,
+                    on_done=unregister_reporter,
+                )
+                register_reporter(run_id, reporter)
+                reporter.start()
+
         asyncio.create_task(
             _resume_bg(
                 pipeline=paused.pipeline,
