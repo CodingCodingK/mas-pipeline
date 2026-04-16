@@ -38,6 +38,11 @@ First tagged release. Engine, REST API, Web UI, docker stack, and group-chat gat
 
 A quick tour of what the system actually does from the user's seat — the three ways in, what each one looks like in the browser, and how the pages stitch the whole thing together.
 
+<!-- VIDEO: end-to-end demo driving blog_with_review from all three surfaces.
+     Storyboard: (1) Pipeline mode — upload material, Start, node pauses, edit in RunNodeDrawer, resume, final post renders. (2) Autonomous chat — Coordinator fans out researcher → writer → reviewer, task-notifications drill into AgentRunDetailDrawer. (3) ClawBot — group asks for a run, two-stage confirm, progress pushback, /resume from chat.
+     File: docs/images/demo-three-drivers.mp4 (target 60–90 s) -->
+[▶ Watch the end-to-end demo — pipeline mode, autonomous chat, and ClawBot driving the same workflow](docs/images/demo-three-drivers.mp4)
+
 ### A project at a glance
 
 Everything lives inside a **project**: a container that holds source material, a default pipeline, a run history, and a scoped memory bank. You create one from the `ProjectsPage` dashboard, drop in PDFs / PPTX / DOCX / Markdown, and the RAG layer (`src/rag/`) chunks and embeds them into pgvector. `ProjectDetailPage` then fans out into tabs — `dashboard / pipeline / agents / runs / files / chat / observability` — so a single URL is enough to see and drive everything for one body of work.
@@ -110,11 +115,6 @@ A `no` (or silence past the 10-min TTL) routes to `cancel_pending_run` instead. 
 **Progress pushback.** Once a pipeline is running, `src/clawbot/progress_reporter.py` subscribes to the same EventBus the Web UI listens to — but instead of driving SSE, it publishes `OutboundMessage`s back to the originating channel: `run_start` → *"run #42 started"*, `interrupt` → *"run #42 paused at `writer`, reply `/resume 42 approve|reject:...|edit:...`"*, `done` → *"run #42 finished in 97 s"*. The `/resume` command is parsed by the Gateway directly (bypassing ClawBot entirely) so a user can approve a paused run without paying for a full model turn.
 
 **Per-chat persona.** The baseline `config/clawbot/SOUL.md` defines the bot's default voice. Any chat can override it at `config/clawbot/personas/<channel>/<chat_id>/SOUL.md` (32 KB cap) — *"reply in English only"*, *"call me 大佬"*, *"never use emojis"*. `channel` and `chat_id` come from `ToolContext`, never from tool parameters, so one chat can't clobber another's SOUL by construction.
-
-<!-- VIDEO: end-to-end demo driving blog_with_review from all three surfaces.
-     Storyboard: (1) Pipeline mode — upload material, Start, node pauses, edit in RunNodeDrawer, resume, final post renders. (2) Autonomous chat — Coordinator fans out researcher → writer → reviewer, task-notifications drill into AgentRunDetailDrawer. (3) ClawBot — group asks for a run, two-stage confirm, progress pushback, /resume from chat.
-     File: docs/images/demo-three-drivers.mp4 (target 60–90 s) -->
-[▶ Watch the end-to-end demo — pipeline mode, autonomous chat, and ClawBot driving the same workflow](docs/images/demo-three-drivers.mp4)
 
 ### Shape your own pipeline
 
@@ -365,10 +365,11 @@ pytest scripts/test_e2e_smoke.py                   # end-to-end integration test
 
 | Pipeline | Shape | Notes |
 |---|---|---|
-| `blog_generation` | Researcher → Writer → Reviewer → Editor | Baseline linear flow |
+| `blog_generation` | Researcher → Writer → Reviewer | Baseline linear 3-node flow |
 | `blog_with_review` | Researcher → Writer (interrupt) → Reviewer | Reference for approve / reject / edit HIL |
-| `courseware_exam` | Parser (multimodal) → Analyzer → ExamGenerator → Reviewer | Ingests PPTX / PDF |
-| `test_linear` / `test_parallel` | synthetic | Regression fixtures |
+| `courseware_exam` | Parser (multimodal) → Analyzer → ExamGenerator → ExamReviewer | Ingests PPTX / PDF, 4-node chain |
+| `test_linear` | Researcher → Writer → Reviewer | Regression fixture, all `general` role |
+| `test_parallel` | (Researcher ∥ Analyst ∥ FactChecker) → Writer → Reviewer → Editor | Parallel fan-in/fan-out regression fixture |
 
 Add a new pipeline by dropping a YAML into `pipelines/` — or author one inside the app with the DAG editor.
 

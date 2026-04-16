@@ -38,6 +38,11 @@
 
 从用户视角快速看一遍系统到底能做什么 —— 三种入口、每种入口在浏览器里长什么样，以及这些页面是怎么串起来的。
 
+<!-- VIDEO: 端到端演示，在三个入口驱动 blog_with_review。
+     剧本：(1) 管线模式 —— 上传材料，Start，节点暂停，在 RunNodeDrawer 里编辑，resume，最终文章渲染。(2) 自主聊天 —— Coordinator 派发 researcher → writer → reviewer，task-notification 钻进 AgentRunDetailDrawer。(3) ClawBot —— 群里请求一次 run，两阶段确认，进度回推，从聊天里 /resume。
+     文件：docs/images/demo-three-drivers.mp4 (目标 60–90 秒) -->
+[▶ 观看端到端演示 —— 管线模式、自主聊天、ClawBot 驱动同一条工作流](docs/images/demo-three-drivers.mp4)
+
 ### 项目是一切的起点
 
 所有东西都装在**项目**里：一个容器，持有源材料、默认管线、运行历史和一个作用域化的 Memory 仓。你从 `ProjectsPage` 总览页创建项目，丢进 PDF / PPTX / DOCX / Markdown，RAG 层（`src/rag/`）会把它们切片、向量化写入 pgvector。`ProjectDetailPage` 接着展开成若干 Tab —— `dashboard / pipeline / agents / runs / files / chat / observability` —— 一个 URL 就够你看完、驱动完一个工作体的全部事务。
@@ -110,11 +115,6 @@ clawbot：   → confirm_pending_run()  → 建 workflow_runs 行，拉起管线
 **进度回推。** 管线一旦在跑，`src/clawbot/progress_reporter.py` 会订阅 Web UI 用的同一条 EventBus —— 但它不是驱动 SSE，而是往原始频道发布 `OutboundMessage`：`run_start` → *"run #42 已启动"*、`interrupt` → *"run #42 卡在 `writer`，请回 `/resume 42 approve|reject:...|edit:...`"*、`done` → *"run #42 在 97 秒内跑完"*。`/resume` 命令由 Gateway 直接解析（完全绕过 ClawBot），这样用户审批一个暂停的 run 不必承担一整轮模型调用的成本。
 
 **每群一份人格。** 基准 `config/clawbot/SOUL.md` 定义了 Bot 的默认语气。任何群聊都可以在 `config/clawbot/personas/<channel>/<chat_id>/SOUL.md` 覆盖它（32 KB 上限）—— *"在这个群只说英文"*、*"叫我大佬"*、*"别用 emoji"*。`channel` 和 `chat_id` 来自 `ToolContext` 而不是工具参数，所以一个群聊在结构上就没法踩踏另一个群聊的 SOUL。
-
-<!-- VIDEO: 端到端演示，在三个入口驱动 blog_with_review。
-     剧本：(1) 管线模式 —— 上传材料，Start，节点暂停，在 RunNodeDrawer 里编辑，resume，最终文章渲染。(2) 自主聊天 —— Coordinator 派发 researcher → writer → reviewer，task-notification 钻进 AgentRunDetailDrawer。(3) ClawBot —— 群里请求一次 run，两阶段确认，进度回推，从聊天里 /resume。
-     文件：docs/images/demo-three-drivers.mp4 (目标 60–90 秒) -->
-[▶ 观看端到端演示 —— 管线模式、自主聊天、ClawBot 驱动同一条工作流](docs/images/demo-three-drivers.mp4)
 
 ### 自己捏一条管线
 
@@ -365,10 +365,11 @@ pytest scripts/test_e2e_smoke.py                   # 端到端集成测试
 
 | 管线 | 形态 | 备注 |
 |---|---|---|
-| `blog_generation` | Researcher → Writer → Reviewer → Editor | 基础线性流 |
+| `blog_generation` | Researcher → Writer → Reviewer | 基础线性 3 节点流 |
 | `blog_with_review` | Researcher → Writer（interrupt）→ Reviewer | approve / reject / edit HIL 的参考实现 |
-| `courseware_exam` | Parser（多模态）→ Analyzer → ExamGenerator → Reviewer | 摄入 PPTX / PDF |
-| `test_linear` / `test_parallel` | 合成 | 回归用 fixture |
+| `courseware_exam` | Parser（多模态）→ Analyzer → ExamGenerator → ExamReviewer | 摄入 PPTX / PDF，4 节点链 |
+| `test_linear` | Researcher → Writer → Reviewer | 回归 fixture，全部使用 `general` 角色 |
+| `test_parallel` | (Researcher ∥ Analyst ∥ FactChecker) → Writer → Reviewer → Editor | 并行扇入/扇出回归 fixture |
 
 新加一条管线只需往 `pipelines/` 丢一个 YAML —— 或者在 App 里用 DAG 编辑器动笔。
 
