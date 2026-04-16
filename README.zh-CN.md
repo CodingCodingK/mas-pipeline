@@ -14,7 +14,7 @@
 
 ## v0.1 — MVP 功能清单
 
-首个打标签发布。引擎、REST API、Web UI、docker 栈、群聊网关全部端到端打通，可以通过集成冒烟测试（热启动约 115 秒）。
+首个打标签发布。引擎、REST API、Web UI、docker 栈、群聊网关全部端到端打通，可以通过集成冒烟测试。
 
 **Agent 运行时** —— 流式 ReAct 循环 · 多厂商路由（Anthropic / OpenAI / Gemini / DeepSeek / Qwen / Ollama）· 仅追加式上下文压缩 + 熔断器 · **单轮内并行工具调用** · 11 个内置工具 · `spawn_agent` 拉起隔离转录的子 Agent · Markdown 定义的 Skill · 项目级持久化 Memory。
 
@@ -250,12 +250,12 @@ pipelines/     5 条 YAML 管线（blog × 2、courseware_exam、tests × 2）
 skills/        Markdown skill 模板
 config/        settings.yaml · settings.local.yaml · pricing.yaml
 deploy/        prometheus.yml · grafana 供给
-scripts/       smoke_test.sh · init_db.sql · migrations
-web/           Vite + React 18 + TS SPA（7 个页面，~3400 LoC）
+scripts/       test_e2e_smoke.py · init_db.sql · migrations
+web/           Vite + React 18 + TS SPA（7 个页面，~8400 LoC）
 openspec/      OpenSpec 驱动开发流程的 spec 档案
 ```
 
-规模参考：agent 运行时约 1400 行、管线 + 会话引擎约 2400 行、前端约 3400 行。
+规模参考：agent 运行时约 1400 行、管线 + 会话引擎约 2400 行、前端约 8400 行。
 
 ---
 
@@ -292,7 +292,7 @@ openspec/      OpenSpec 驱动开发流程的 spec 档案
 
 | 方向 | 工具 |
 |---|---|
-| **容器编排** | Docker Compose（4 基础 + 2 监控）· 多阶段构建 |
+| **容器编排** | Docker Compose（6 基础 + 2 监控）· 多阶段构建 |
 | **Web 代理** | nginx（SPA history fallback + `/api/` 反向代理 + SSE 透传） |
 | **监控（可选）** | Prometheus 2.54 · Grafana OSS 10.4（自动供给） |
 | **沙箱** | `bubblewrap`（Linux）· `sandbox-exec`（macOS）· passthrough（Windows） |
@@ -307,12 +307,14 @@ openspec/      OpenSpec 驱动开发流程的 spec 档案
 | **变更管理** | **OpenSpec**（规范驱动工作流，运行于 **Claude Code** 中） |
 | **测试** | pytest 8.3 · pytest-asyncio · pytest-cov |
 | **静态检查** | ruff 0.8 · mypy 1.13（strict） |
-| **集成冒烟** | `scripts/smoke_test.sh`（热启动约 115s） |
+| **集成冒烟** | `scripts/test_e2e_smoke.py` + `docker-compose.smoke.yaml` |
 | **平台脚本** | `start.bat` / `stop.bat`（Windows）· `scripts/start.sh` |
 
 ---
 
 ## 快速上手
+
+**前置条件：** Docker & Docker Compose v2 · Git · （可选，本地开发用）Python ≥ 3.12 · Node ≥ 20
 
 ```bash
 # 1. 克隆 & 配置
@@ -321,7 +323,7 @@ cp .env.example .env                              # 至少填一个 LLM provider
 cp config/settings.local.yaml.example config/settings.local.yaml  # 可选：覆盖模型档位
 
 # 2. 启动整栈
-docker compose up --build -d                      # postgres + redis + api + web
+docker compose up --build -d                      # postgres + redis + ollama + api + gateway + web
 # Windows: start.bat
 ```
 
@@ -340,9 +342,10 @@ TAVILY_API_KEY=tvly-...          # 可选，启用 web_search 工具
 **可选模型档位覆盖**（`config/settings.local.yaml`）：
 
 ```yaml
+# 示例：用指定模型覆盖默认档位
 models:
-  strong: claude-opus-4-6        # researcher、reviewer、clawbot
-  medium: claude-sonnet-4-6      # writer、analyzer、exam_generator
+  strong: claude-sonnet-4-6      # researcher、reviewer、clawbot
+  medium: deepseek-chat          # writer、analyzer、exam_generator
   light:  gpt-4o-mini            # 总结、memory 相关性裁判
 ```
 
@@ -353,7 +356,7 @@ models:
 ```bash
 ollama pull nomic-embed-text                      # 启用 RAG（本地，无需云端 key）
 docker compose --profile monitoring up -d         # Prometheus :9090 + Grafana :3000 (admin/admin)
-scripts/smoke_test.sh                             # 端到端集成测试（约 115s）
+pytest scripts/test_e2e_smoke.py                   # 端到端集成测试
 ```
 
 ---

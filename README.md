@@ -2,7 +2,7 @@
 
 **English** | [中文](README.zh-CN.md)
 
-> **Status: v0.1 — MVP (2026-04-14)** · free, open-source, primarily a learning project · docker stack + REST + Web UI + group-chat bot wired end-to-end
+> **Status: v0.1 — MVP (2026-04-14)** · free, open-source, primarily a learning project · docker one-command stack + REST + Web UI + group-chat bot wired end-to-end
 
 A configurable Multi-Agent System engine for content production pipelines. Agents are Markdown files, pipelines are YAML DAGs, and the same workflow runs three ways — as a batch pipeline, as a chat session, or from a group-chat bot — with no per-front-end glue code.
 
@@ -14,7 +14,7 @@ A configurable Multi-Agent System engine for content production pipelines. Agent
 
 ## v0.1 — MVP feature set
 
-First tagged release. Engine, REST API, Web UI, docker stack, and group-chat gateway are wired end-to-end and pass an integration smoke test (~115s warm).
+First tagged release. Engine, REST API, Web UI, docker stack, and group-chat gateway are wired end-to-end and pass an integration smoke test.
 
 **Agent runtime** — streaming ReAct loop · provider-agnostic router (Anthropic / OpenAI / Gemini / DeepSeek / Qwen / Ollama) · append-only context compact with circuit breaker · **parallel tool calls in a single turn** · 11 built-in tools · sub-agents via `spawn_agent` with isolated transcripts · Markdown-defined skills · project-scoped persistent memory.
 
@@ -250,12 +250,12 @@ pipelines/     5 YAML pipelines (blog × 2, courseware_exam, tests × 2)
 skills/        Markdown skill templates
 config/        settings.yaml · settings.local.yaml · pricing.yaml
 deploy/        prometheus.yml · grafana provisioning
-scripts/       smoke_test.sh · init_db.sql · migrations
-web/           Vite + React 18 + TS SPA (7 pages, ~3400 LoC)
+scripts/       test_e2e_smoke.py · init_db.sql · migrations
+web/           Vite + React 18 + TS SPA (7 pages, ~8400 LoC)
 openspec/      Spec archives from the OpenSpec-driven dev workflow
 ```
 
-Rough size: agent runtime ~1400 LoC, pipeline + session engine ~2400 LoC, frontend ~3400 LoC.
+Rough size: agent runtime ~1400 LoC, pipeline + session engine ~2400 LoC, frontend ~8400 LoC.
 
 ---
 
@@ -292,7 +292,7 @@ Rough size: agent runtime ~1400 LoC, pipeline + session engine ~2400 LoC, fronte
 
 | Area | Tool |
 |---|---|
-| **Container orchestration** | Docker Compose (4 base + 2 monitoring) · multi-stage builds |
+| **Container orchestration** | Docker Compose (6 base + 2 monitoring) · multi-stage builds |
 | **Web proxy** | nginx (SPA history fallback + `/api/` reverse proxy + SSE passthrough) |
 | **Monitoring (opt-in)** | Prometheus 2.54 · Grafana OSS 10.4 (auto-provisioned) |
 | **Sandbox** | `bubblewrap` (Linux) · `sandbox-exec` (macOS) · passthrough (Windows) |
@@ -307,12 +307,14 @@ Rough size: agent runtime ~1400 LoC, pipeline + session engine ~2400 LoC, fronte
 | **Change management** | **OpenSpec** (spec-driven workflow, executed inside **Claude Code**) |
 | **Testing** | pytest 8.3 · pytest-asyncio · pytest-cov |
 | **Linting** | ruff 0.8 · mypy 1.13 (strict) |
-| **Integration smoke** | `scripts/smoke_test.sh` (~115s warm) |
+| **Integration smoke** | `scripts/test_e2e_smoke.py` + `docker-compose.smoke.yaml` |
 | **Platform helpers** | `start.bat` / `stop.bat` (Windows) · `scripts/start.sh` |
 
 ---
 
 ## Quick start
+
+**Prerequisites:** Docker & Docker Compose v2 · Git · (optional, for local dev) Python ≥ 3.12 · Node ≥ 20
 
 ```bash
 # 1. Clone & configure
@@ -321,7 +323,7 @@ cp .env.example .env                              # fill in ≥1 LLM provider ke
 cp config/settings.local.yaml.example config/settings.local.yaml  # optional: override model tiers
 
 # 2. Launch the stack
-docker compose up --build -d                      # postgres + redis + api + web
+docker compose up --build -d                      # postgres + redis + ollama + api + gateway + web
 # Windows: start.bat
 ```
 
@@ -340,9 +342,10 @@ TAVILY_API_KEY=tvly-...          # optional, enables web_search tool
 **Optional model-tier override** (`config/settings.local.yaml`):
 
 ```yaml
+# Example: override the default tiers with specific models
 models:
-  strong: claude-opus-4-6        # researcher, reviewer, clawbot
-  medium: claude-sonnet-4-6      # writer, analyzer, exam_generator
+  strong: claude-sonnet-4-6      # researcher, reviewer, clawbot
+  medium: deepseek-chat          # writer, analyzer, exam_generator
   light:  gpt-4o-mini            # summarization, memory relevance judge
 ```
 
@@ -353,7 +356,7 @@ The router validates every tier at startup — **missing API keys refuse boot** 
 ```bash
 ollama pull nomic-embed-text                      # enable RAG (local, zero cloud key)
 docker compose --profile monitoring up -d         # Prometheus :9090 + Grafana :3000 (admin/admin)
-scripts/smoke_test.sh                             # end-to-end integration test (~115s)
+pytest scripts/test_e2e_smoke.py                   # end-to-end integration test
 ```
 
 ---
