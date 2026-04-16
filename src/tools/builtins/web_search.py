@@ -49,8 +49,8 @@ class WebSearchTool(Tool):
             },
             "max_results": {
                 "type": "integer",
-                "description": "Maximum number of results to return (default 5).",
-                "default": 5,
+                "description": "Maximum number of results to return (default 8).",
+                "default": 8,
             },
         },
         "required": ["query"],
@@ -64,7 +64,7 @@ class WebSearchTool(Tool):
 
     async def call(self, params: dict, context: ToolContext) -> ToolResult:
         query: str = params["query"]
-        max_results: int = params.get("max_results", 5)
+        max_results: int = params.get("max_results", 8)
 
         api_key = _get_api_key()
         if not api_key:
