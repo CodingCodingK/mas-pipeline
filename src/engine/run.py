@@ -35,6 +35,11 @@ def unregister_abort_signal(run_id: str) -> None:
     _abort_signals.pop(run_id, None)
 
 
+def active_pipeline_run_count() -> int:
+    """Number of pipeline runs currently executing in this process."""
+    return len(_abort_signals)
+
+
 # ── In-process pipeline event stream registry ───────────────
 # Lets the SSE trigger endpoint subscribe to lifecycle events emitted by
 # `execute_pipeline` / graph node functions in the same process. Like

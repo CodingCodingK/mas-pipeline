@@ -78,14 +78,18 @@ def setup_metrics() -> None:
         return float(len(session_registry.snapshot()))
 
     def _workers() -> float:
-        # Running jobs + running sub-agent count across all active runners.
+        # Running jobs + running sub-agent count across all active runners
+        # + in-flight pipeline runs (bare asyncio tasks, not in jobs registry).
+        from src.engine.run import active_pipeline_run_count
+
         running_jobs = sum(1 for j in get_jobs_registry().list() if j.status == "running")
         running_subs = 0
         for runner in session_registry.snapshot():
             state = getattr(runner, "state", None)
             if state is not None:
                 running_subs += getattr(state, "running_agent_count", 0)
-        return float(running_jobs + running_subs)
+        pipeline_runs = active_pipeline_run_count()
+        return float(running_jobs + running_subs + pipeline_runs)
 
     def _pg_used() -> float:
         try:

@@ -502,8 +502,11 @@ async def resume_pipeline(
             pipeline_event_type="pipeline_resumed",
             pipeline_name=pipeline_name,
         )
+        from src.engine.run import register_abort_signal, unregister_abort_signal
+
         run_id_int = await _resolve_run_id_int(run_id)
         abort_signal = asyncio.Event()
+        register_abort_signal(run_id, abort_signal)
 
         # Transition: paused → running
         await update_run_status(run_id, RunStatus.RUNNING)
@@ -635,6 +638,7 @@ async def resume_pipeline(
         current_run_id.reset(run_id_token)
         current_project_id.reset(project_id_token)
         await mcp_manager.shutdown()
+        unregister_abort_signal(run_id)
 
 
 async def get_pipeline_status(run_id: str) -> dict:
