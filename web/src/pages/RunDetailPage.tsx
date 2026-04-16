@@ -4,7 +4,6 @@ import { client, ApiError, __internal } from "@/api/client";
 import { fetchEventStream, type SseEvent } from "@/api/sse";
 import {
   subscribeRunEvents,
-  pauseRun,
   cancelRun,
   getRunGraph,
   type RunGraphResponse,
@@ -350,30 +349,16 @@ function RunOpsButtons({
   status: string;
   onChanged: () => void;
 }) {
-  const [busy, setBusy] = useState<"pause" | "cancel" | null>(null);
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   if (!runId) return null;
-  const canPause = status === "running";
   const canCancel = status === "running" || status === "paused";
-  if (!canPause && !canCancel) return null;
-
-  const doPause = async () => {
-    setBusy("pause");
-    setErr(null);
-    try {
-      await pauseRun(runId);
-      onChanged();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  };
+  if (!canCancel) return null;
 
   const doCancel = async () => {
     if (!window.confirm("Cancel this run? In-flight LLM calls may still bill.")) return;
-    setBusy("cancel");
+    setBusy(true);
     setErr(null);
     try {
       await cancelRun(runId);
@@ -381,32 +366,20 @@ function RunOpsButtons({
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
 
   return (
     <div className="flex items-center gap-2">
-      {canPause && (
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={doPause}
-          className="rounded border border-amber-400 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
-        >
-          {busy === "pause" ? "Pausing…" : "⏸ Pause"}
-        </button>
-      )}
-      {canCancel && (
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={doCancel}
-          className="rounded border border-rose-400 bg-rose-50 px-3 py-1 text-xs font-medium text-rose-800 hover:bg-rose-100 disabled:opacity-50"
-        >
-          {busy === "cancel" ? "Cancelling…" : "✕ Cancel"}
-        </button>
-      )}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={doCancel}
+        className="rounded border border-rose-400 bg-rose-50 px-3 py-1 text-xs font-medium text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+      >
+        {busy ? "Cancelling…" : "✕ Cancel"}
+      </button>
       {err && <span className="text-[11px] text-rose-600 font-mono">{err}</span>}
     </div>
   );

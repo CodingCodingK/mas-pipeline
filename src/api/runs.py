@@ -319,42 +319,6 @@ async def resume_run(run_id: str, body: ResumeBody) -> StatusResponse:
     return StatusResponse(run_id=run.run_id, status="resumed")
 
 
-@router.post("/runs/{run_id}/pause", status_code=202)
-async def pause_run(run_id: str) -> StatusResponse:
-    """Request a running pipeline to pause at the next safe point.
-
-    Flips the workflow row to ``paused`` and sets the shared abort_signal
-    so in-flight LangGraph nodes can observe it on their next abort check.
-    Idempotent against a run that is already paused. Note: an LLM call
-    currently in-flight on a node runs to completion before the engine
-    re-reads the signal — pause latency can be up to the node's turn.
-    """
-    run = await get_run(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="run not found")
-
-    if run.status == RunStatus.PAUSED.value:
-        return StatusResponse(run_id=run.run_id, status="paused")
-
-    if run.status != RunStatus.RUNNING.value:
-        raise HTTPException(
-            status_code=409,
-            detail=f"run is not running (current status: {run.status})",
-        )
-
-    signal = get_abort_signal(run.run_id)
-    if signal is not None:
-        signal.set()
-
-    try:
-        await update_run_status(run.run_id, RunStatus.PAUSED)
-    except Exception:
-        logger.exception("Failed to mark run %s paused", run.run_id)
-        raise HTTPException(status_code=500, detail="failed to transition run state")
-
-    return StatusResponse(run_id=run.run_id, status="paused")
-
-
 @router.post("/runs/{run_id}/cancel", status_code=202)
 async def cancel_run(run_id: str) -> StatusResponse:
     run = await get_run(run_id)

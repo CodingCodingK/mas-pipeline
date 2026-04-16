@@ -24,10 +24,6 @@ export function resumeRun(runId: string, value: ResumeValue): Promise<unknown> {
   return client.post(`/runs/${runId}/resume`, { value });
 }
 
-export function pauseRun(runId: string): Promise<unknown> {
-  return client.post(`/runs/${runId}/pause`);
-}
-
 export function cancelRun(runId: string): Promise<unknown> {
   return client.post(`/runs/${runId}/cancel`);
 }

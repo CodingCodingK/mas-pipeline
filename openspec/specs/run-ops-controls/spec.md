@@ -3,34 +3,6 @@
 ## Purpose
 TBD - created by archiving change improve-run-observability-and-ops. Update Purpose after archive.
 ## Requirements
-### Requirement: Pause endpoint with soft-abort semantics
-
-The system SHALL expose `POST /api/runs/{run_id}/pause` that requests a pause on a running pipeline. The endpoint SHALL set an `abort_signal` on the currently executing node's `AgentState` and SHALL flip `workflow_runs.status` to `paused`. The currently in-flight LLM call SHALL be allowed to complete before the abort takes effect — mid-call interruption is NOT supported.
-
-The endpoint SHALL return HTTP 200 with `{status: "pause_requested", run_id, paused_at_node?}` on a run that is currently in `status="running"`. It SHALL return HTTP 409 with `{detail: "run is not running"}` if the run is already `paused`, `completed`, `failed`, or `cancelled`. It SHALL return HTTP 404 if `run_id` does not exist.
-
-The endpoint SHALL be idempotent with respect to a `pause_requested` state: calling it twice on the same running run SHALL return the same 200 response without creating a duplicate abort signal.
-
-#### Scenario: Pause on a running pipeline returns 200 and sets abort
-
-- **GIVEN** a run `run_abc` with `workflow_runs.status="running"` and an active agent executing
-- **WHEN** a client issues `POST /api/runs/run_abc/pause`
-- **THEN** the response SHALL be HTTP 200 with `status="pause_requested"`
-- **AND** the active agent's `AgentState.abort_signal` SHALL be set
-- **AND** `workflow_runs.status` SHALL be `"paused"` (the DB write happens when the loop yields)
-
-#### Scenario: Pause on an already paused run returns 409
-
-- **GIVEN** a run with `status="paused"`
-- **WHEN** a client issues `POST /api/runs/{run_id}/pause`
-- **THEN** the response SHALL be HTTP 409
-
-#### Scenario: Pause on a completed run returns 409
-
-- **GIVEN** a run with `status="completed"`
-- **WHEN** a client issues `POST /api/runs/{run_id}/pause`
-- **THEN** the response SHALL be HTTP 409
-
 ### Requirement: Cancel endpoint with sub-agent cascade
 
 The system SHALL expose `POST /api/runs/{run_id}/cancel` that terminates a running or paused pipeline. The endpoint SHALL set `abort_signal` on the currently executing node's `AgentState`, flip `workflow_runs.status` to `cancelled`, and cascade cancellation to any running sub-agent tasks spawned by nodes in this run.
@@ -107,20 +79,13 @@ The existing `/resume <run_id>` bus command path (processed by `src/bus/gateway.
 - **WHEN** a client issues `POST /api/runs/{run_id}/resume` with `{action: "approve"}`
 - **THEN** the response SHALL be HTTP 409
 
-### Requirement: Pause and cancel are surfaced as header controls in the web UI
+### Requirement: Cancel is surfaced as a header control in the web UI
 
-The run detail page in the web UI SHALL render two buttons in the page header: "Pause" and "Cancel". Pause SHALL be visible and enabled only when the run is in `status="running"`. Cancel SHALL be visible and enabled when the run is in `status="running"` or `status="paused"`. Both buttons SHALL invoke the corresponding REST endpoint and SHALL update the page state based on the response.
+The run detail page in the web UI SHALL render a "Cancel" button in the page header. Cancel SHALL be visible and enabled when the run is in `status="running"` or `status="paused"`. The button SHALL invoke the cancel REST endpoint and SHALL update the page state based on the response.
 
-Cancel SHALL require a confirmation dialog ("Cancel this run? This cannot be undone.") before issuing the request. Pause SHALL NOT require confirmation.
+Cancel SHALL require a confirmation dialog ("Cancel this run? In-flight LLM calls may still bill.") before issuing the request.
 
-While a pause is pending (between click and backend state change), the pause button SHALL be replaced with a disabled "Pausing..." indicator. Once the SSE stream or a poll confirms `status="paused"`, the header SHALL show the paused state and offer the approve/reject/edit controls appropriate to the interrupt.
-
-#### Scenario: Pause button fires pause endpoint
-
-- **GIVEN** the run detail page is showing a running pipeline
-- **WHEN** the user clicks "Pause"
-- **THEN** a `POST /api/runs/{run_id}/pause` request SHALL be issued
-- **AND** the button SHALL be replaced with a disabled "Pausing..." indicator until the status changes
+Note: manual pause via REST has been removed. Pipeline pause is only triggered by `interrupt: true` nodes in the YAML definition. When a run is paused at an interrupt, the existing ResumePanel (approve/reject/edit) is shown automatically.
 
 #### Scenario: Cancel requires confirmation
 
@@ -129,10 +94,10 @@ While a pause is pending (between click and backend state change), the pause but
 - **THEN** a confirmation dialog SHALL appear
 - **AND** the backend request SHALL be issued only after confirmation
 
-#### Scenario: Paused state offers approve/reject/edit buttons
+#### Scenario: Paused state offers approve/reject/edit controls
 
-- **GIVEN** the run detail page is showing a run that just transitioned to `paused` at an interrupt
+- **GIVEN** the run detail page is showing a run that paused at an `interrupt: true` node
 - **WHEN** the paused state is rendered
-- **THEN** the header SHALL display three buttons: Approve, Reject, Edit
-- **AND** the Approve button SHALL NOT have an associated comment input field
+- **THEN** the ResumePanel SHALL display approve, reject, and edit controls
+- **AND** these controls SHALL only appear when `detail.paused_at` is set (interrupt-based pause)
 
