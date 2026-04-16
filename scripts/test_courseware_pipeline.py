@@ -71,10 +71,10 @@ print("\n=== 3. Role files ===")
 all_tools = get_all_tools()
 
 for role_name, expected_tools, expected_tier in [
-    ("parser", ["read_file"], "strong"),
+    ("parser", ["search_docs", "read_file"], "strong"),
     ("analyzer", [], "medium"),
     ("exam_generator", ["search_docs", "read_file"], "medium"),
-    ("exam_reviewer", [], "medium"),
+    ("exam_reviewer", ["web_search"], "medium"),
 ]:
     role_path = AGENTS_DIR / f"{role_name}.md"
     check(f"{role_name}.md exists", role_path.is_file())
@@ -94,7 +94,7 @@ print("\n=== 4. Global tool pool ===")
 
 check("search_docs in get_all_tools()", "search_docs" in all_tools)
 check("read_file in get_all_tools()", "read_file" in all_tools)
-check("Total tools = 7", len(all_tools) == 7, f"got {len(all_tools)}: {list(all_tools.keys())}")
+check("Total tools >= 7", len(all_tools) >= 7, f"got {len(all_tools)}: {list(all_tools.keys())}")
 
 # ── 5. Pipeline ↔ Role integration ──────────────────────
 

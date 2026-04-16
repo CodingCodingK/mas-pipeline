@@ -28,12 +28,12 @@ The pipeline SHALL have a linear dependency chain: analyzer depends on parser, e
 - **AND** exam_reviewer SHALL depend on exam_generator
 
 ### Requirement: parser role uses strong tier and read_file
-`agents/parser.md` SHALL define a role with model_tier "strong" and tools [read_file]. The prompt SHALL instruct the agent to parse courseware content, extracting text structure, key concepts, and noting any visual elements (charts, diagrams, formulas).
+`agents/parser.md` SHALL define a role with model_tier "strong" and tools [search_docs, read_file]. The prompt SHALL instruct the agent to retrieve courseware content from the project's RAG index via search_docs, then parse and structure it. If no relevant documents are found or the input is mismatched, the parser SHALL output an empty report instead of fabricating content.
 
 #### Scenario: Parser role metadata
 - **WHEN** parser.md frontmatter is parsed
 - **THEN** model_tier SHALL be "strong"
-- **AND** tools SHALL be ["read_file"]
+- **AND** tools SHALL be ["search_docs", "read_file"]
 
 #### Scenario: Parser prompt content
 - **WHEN** parser.md body is read
@@ -67,12 +67,12 @@ The pipeline SHALL have a linear dependency chain: analyzer depends on parser, e
 - **AND** generate questions based on retrieved content, not LLM memory alone
 
 ### Requirement: exam_reviewer role reviews and polishes exam output
-`agents/exam_reviewer.md` SHALL define a role with model_tier "medium" and tools []. The prompt SHALL instruct the agent to review exam questions for correctness, clarity, difficulty balance, and alignment with the knowledge points.
+`agents/exam_reviewer.md` SHALL define a role with model_tier "medium" and tools [web_search]. The prompt SHALL instruct the agent to review exam questions for correctness, clarity, difficulty balance, and alignment with the knowledge points. The agent MAY use web_search to fact-check suspicious answers, limited to at most 3 calls per exam.
 
 #### Scenario: Exam reviewer role metadata
 - **WHEN** exam_reviewer.md frontmatter is parsed
 - **THEN** model_tier SHALL be "medium"
-- **AND** tools SHALL be []
+- **AND** tools SHALL be ["web_search"]
 
 #### Scenario: Exam reviewer prompt content
 - **WHEN** exam_reviewer.md body is read
