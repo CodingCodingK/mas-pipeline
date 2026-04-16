@@ -38,8 +38,6 @@
 
 https://github.com/user-attachments/assets/ec2f93ca-2f2c-4dd5-9749-c22bbe2629c6
 
-[▶ 在 Bilibili 观看完整版](https://www.bilibili.com/video/BV1Nzd8BeEuF)
-
 ### 项目是一切的起点
 
 所有东西都装在**项目**里：一个容器，持有源材料、默认管线、运行历史和一个作用域化的 Memory 仓。你从 `ProjectsPage` 总览页创建项目，丢进 PDF / PPTX / DOCX / Markdown，RAG 层（`src/rag/`）会把它们切片、向量化写入 pgvector。`ProjectDetailPage` 接着展开成若干 Tab —— `dashboard / pipeline / agents / runs / files / chat / observability` —— 一个 URL 就够你看完、驱动完一个工作体的全部事务。

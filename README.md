@@ -38,8 +38,6 @@ A quick tour of what the system actually does from the user's seat — the three
 
 https://github.com/user-attachments/assets/ec2f93ca-2f2c-4dd5-9749-c22bbe2629c6
 
-[▶ Watch on Bilibili](https://www.bilibili.com/video/BV1Nzd8BeEuF)
-
 ### A project at a glance
 
 Everything lives inside a **project**: a container that holds source material, a default pipeline, a run history, and a scoped memory bank. You create one from the `ProjectsPage` dashboard, drop in PDFs / PPTX / DOCX / Markdown, and the RAG layer (`src/rag/`) chunks and embeds them into pgvector. `ProjectDetailPage` then fans out into tabs — `dashboard / pipeline / agents / runs / files / chat / observability` — so a single URL is enough to see and drive everything for one body of work.
