@@ -36,10 +36,7 @@
 
 从用户视角快速看一遍系统到底能做什么 —— 三种入口、每种入口在浏览器里长什么样，以及这些页面是怎么串起来的。
 
-<!-- VIDEO: 端到端演示，在三个入口驱动 blog_with_review。
-     剧本：(1) 管线模式 —— 上传材料，Start，节点暂停，在 RunNodeDrawer 里编辑，resume，最终文章渲染。(2) 自主聊天 —— Coordinator 派发 researcher → writer → reviewer，task-notification 钻进 AgentRunDetailDrawer。(3) ClawBot —— 群里请求一次 run，两阶段确认，进度回推，从聊天里 /resume。
-     文件：docs/images/demo-three-drivers.mp4 (目标 60–90 秒) -->
-[▶ 观看端到端演示 —— 管线模式、自主聊天、ClawBot 驱动同一条工作流](docs/images/demo-three-drivers.mp4)
+[▶ 在 Bilibili 观看 MVP 演示](https://www.bilibili.com/video/BV1Nzd8BeEuF)
 
 ### 项目是一切的起点
 

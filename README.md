@@ -36,10 +36,7 @@ First tagged release. Engine, REST API, Web UI, docker stack, and group-chat gat
 
 A quick tour of what the system actually does from the user's seat — the three ways in, what each one looks like in the browser, and how the pages stitch the whole thing together.
 
-<!-- VIDEO: end-to-end demo driving blog_with_review from all three surfaces.
-     Storyboard: (1) Pipeline mode — upload material, Start, node pauses, edit in RunNodeDrawer, resume, final post renders. (2) Autonomous chat — Coordinator fans out researcher → writer → reviewer, task-notifications drill into AgentRunDetailDrawer. (3) ClawBot — group asks for a run, two-stage confirm, progress pushback, /resume from chat.
-     File: docs/images/demo-three-drivers.mp4 (target 60–90 s) -->
-[▶ Watch the end-to-end demo — pipeline mode, autonomous chat, and ClawBot driving the same workflow](docs/images/demo-three-drivers.mp4)
+[▶ Watch the MVP demo on Bilibili](https://www.bilibili.com/video/BV1Nzd8BeEuF)
 
 ### A project at a glance
 
