@@ -1,0 +1,231 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <radialGradient id="glow-blue" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow-purple" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="400" fill="url(#bg)"/>
+
+  <!-- Ambient glow spots -->
+  <circle cx="495" cy="180" r="200" fill="url(#glow-blue)"/>
+  <circle cx="1060" cy="140" r="180" fill="url(#glow-purple)"/>
+
+  <!-- Subtle grid -->
+  <g opacity="0.03" stroke="#fff" stroke-width="0.5">
+    <line x1="0" y1="60" x2="1280" y2="60"/><line x1="0" y1="120" x2="1280" y2="120"/>
+    <line x1="0" y1="180" x2="1280" y2="180"/><line x1="0" y1="240" x2="1280" y2="240"/>
+    <line x1="0" y1="300" x2="1280" y2="300"/><line x1="0" y1="360" x2="1280" y2="360"/>
+    <line x1="160" y1="0" x2="160" y2="400"/><line x1="320" y1="0" x2="320" y2="400"/>
+    <line x1="480" y1="0" x2="480" y2="400"/><line x1="640" y1="0" x2="640" y2="400"/>
+    <line x1="800" y1="0" x2="800" y2="400"/><line x1="960" y1="0" x2="960" y2="400"/>
+    <line x1="1120" y1="0" x2="1120" y2="400"/>
+  </g>
+
+  <!-- ═══ Particles / floating dots ═══ -->
+  <g opacity="0.25">
+    <!-- Scattered across background -->
+    <circle cx="45" cy="30" r="1.5" fill="#3b82f6"/>
+    <circle cx="128" cy="145" r="1" fill="#8b5cf6"/>
+    <circle cx="280" cy="45" r="1.8" fill="#06b6d4"/>
+    <circle cx="350" cy="320" r="1.2" fill="#3b82f6"/>
+    <circle cx="460" cy="50" r="1" fill="#22c55e"/>
+    <circle cx="520" cy="340" r="1.5" fill="#8b5cf6"/>
+    <circle cx="620" cy="30" r="1.3" fill="#f59e0b"/>
+    <circle cx="680" cy="330" r="1" fill="#ec4899"/>
+    <circle cx="750" cy="40" r="1.6" fill="#3b82f6"/>
+    <circle cx="870" cy="50" r="1.2" fill="#06b6d4"/>
+    <circle cx="920" cy="320" r="1.4" fill="#22c55e"/>
+    <circle cx="980" cy="60" r="1" fill="#8b5cf6"/>
+    <circle cx="1030" cy="300" r="1.5" fill="#3b82f6"/>
+    <circle cx="1140" cy="40" r="1.8" fill="#f59e0b"/>
+    <circle cx="1200" cy="100" r="1.2" fill="#ec4899"/>
+    <circle cx="1230" cy="280" r="1" fill="#06b6d4"/>
+    <circle cx="1100" cy="340" r="1.3" fill="#3b82f6"/>
+    <circle cx="160" cy="340" r="1.4" fill="#22c55e"/>
+    <circle cx="30" cy="200" r="1" fill="#f59e0b"/>
+    <circle cx="900" cy="180" r="1.6" fill="#8b5cf6"/>
+    <circle cx="1250" cy="200" r="1.2" fill="#3b82f6"/>
+    <circle cx="70" cy="360" r="1.5" fill="#06b6d4"/>
+    <circle cx="400" cy="25" r="1" fill="#ec4899"/>
+    <circle cx="570" cy="290" r="1.3" fill="#22c55e"/>
+    <circle cx="830" cy="310" r="1.8" fill="#3b82f6"/>
+    <circle cx="1170" cy="180" r="1" fill="#8b5cf6"/>
+    <circle cx="240" cy="260" r="1.4" fill="#f59e0b"/>
+    <circle cx="700" cy="140" r="1.2" fill="#06b6d4"/>
+  </g>
+
+  <!-- Slightly larger accent particles -->
+  <g opacity="0.12">
+    <circle cx="310" cy="140" r="3" fill="#3b82f6"/>
+    <circle cx="650" cy="120" r="2.5" fill="#8b5cf6"/>
+    <circle cx="880" cy="260" r="3" fill="#22c55e"/>
+    <circle cx="1180" cy="150" r="2.5" fill="#f59e0b"/>
+    <circle cx="100" cy="300" r="2.5" fill="#06b6d4"/>
+    <circle cx="500" cy="310" r="3" fill="#ec4899"/>
+    <circle cx="1050" cy="250" r="2.5" fill="#3b82f6"/>
+    <circle cx="780" cy="50" r="3" fill="#8b5cf6"/>
+  </g>
+
+  <!-- ═══ Left: 3 input lanes ═══ -->
+
+  <!-- Pipeline -->
+  <rect x="56" y="62" width="160" height="36" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1" opacity="0.8"/>
+  <text x="136" y="85" text-anchor="middle" fill="#93c5fd" font-size="14" font-weight="600">Pipeline</text>
+  <text x="136" y="112" text-anchor="middle" fill="#64748b" font-size="10">3 prebuilt YAML DAGs</text>
+  <text x="136" y="124" text-anchor="middle" fill="#64748b" font-size="10">blog, courseware, custom</text>
+
+  <!-- Coordinator -->
+  <rect x="56" y="152" width="160" height="36" rx="6" fill="#2e1065" stroke="#8b5cf6" stroke-width="1" opacity="0.8"/>
+  <text x="136" y="175" text-anchor="middle" fill="#c4b5fd" font-size="14" font-weight="600">Coordinator</text>
+  <text x="136" y="202" text-anchor="middle" fill="#64748b" font-size="10">decompose, spawn, synthesize</text>
+  <text x="136" y="214" text-anchor="middle" fill="#64748b" font-size="10">no YAML needed</text>
+
+  <!-- ClawBot -->
+  <rect x="56" y="242" width="160" height="36" rx="6" fill="#083344" stroke="#06b6d4" stroke-width="1" opacity="0.8"/>
+  <text x="136" y="265" text-anchor="middle" fill="#67e8f9" font-size="14" font-weight="600">ClawBot</text>
+  <text x="136" y="292" text-anchor="middle" fill="#64748b" font-size="10">Discord / QQ / WeChat</text>
+  <text x="136" y="304" text-anchor="middle" fill="#64748b" font-size="10">two-stage confirm, /resume</text>
+
+  <!-- Converge lines -->
+  <g fill="none" stroke-width="1.5" opacity="0.3">
+    <path d="M216,80 C310,80 340,180 390,180" stroke="#3b82f6"/>
+    <path d="M216,170 C310,170 340,180 390,180" stroke="#8b5cf6"/>
+    <path d="M216,260 C310,260 340,180 390,180" stroke="#06b6d4"/>
+  </g>
+  <circle cx="390" cy="180" r="5" fill="#8b5cf6" opacity="0.5"/>
+
+  <!-- ═══ Center: Engine ═══ -->
+  <rect x="410" y="142" width="170" height="76" rx="10" fill="#3b82f6" opacity="0.08"/>
+  <rect x="414" y="146" width="162" height="68" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="495" y="172" text-anchor="middle" fill="#f8fafc" font-size="18" font-weight="700">Engine</text>
+  <text x="495" y="192" text-anchor="middle" fill="#64748b" font-size="11">streaming ReAct loop</text>
+  <text x="495" y="204" text-anchor="middle" fill="#64748b" font-size="11">one runtime, all modes</text>
+
+  <!-- Fan-out lines -->
+  <g fill="none" stroke-width="1.5" opacity="0.3">
+    <path d="M576,180 C640,180 660,80 720,80" stroke="#22c55e"/>
+    <path d="M576,180 C640,180 660,170 720,170" stroke="#f59e0b"/>
+    <path d="M576,180 C640,180 660,260 720,260" stroke="#ec4899"/>
+  </g>
+  <circle cx="576" cy="180" r="5" fill="#3b82f6" opacity="0.5"/>
+
+  <!-- ═══ Right: 3 output lanes ═══ -->
+
+  <!-- Content -->
+  <rect x="720" y="62" width="160" height="36" rx="6" fill="#052e16" stroke="#22c55e" stroke-width="1" opacity="0.8"/>
+  <text x="800" y="85" text-anchor="middle" fill="#86efac" font-size="14" font-weight="600">Content</text>
+  <text x="800" y="112" text-anchor="middle" fill="#64748b" font-size="10">Markdown posts, exams</text>
+  <text x="800" y="124" text-anchor="middle" fill="#64748b" font-size="10">research reports, drafts</text>
+
+  <!-- Human Review -->
+  <rect x="720" y="152" width="160" height="36" rx="6" fill="#451a03" stroke="#f59e0b" stroke-width="1" opacity="0.8"/>
+  <text x="800" y="175" text-anchor="middle" fill="#fcd34d" font-size="14" font-weight="600">Human Review</text>
+  <text x="800" y="202" text-anchor="middle" fill="#64748b" font-size="10">approve / reject / edit</text>
+  <text x="800" y="214" text-anchor="middle" fill="#64748b" font-size="10">interrupt: true nodes</text>
+
+  <!-- Observability -->
+  <rect x="720" y="242" width="160" height="36" rx="6" fill="#500724" stroke="#ec4899" stroke-width="1" opacity="0.8"/>
+  <text x="800" y="265" text-anchor="middle" fill="#f9a8d4" font-size="14" font-weight="600">Observability</text>
+  <text x="800" y="292" text-anchor="middle" fill="#64748b" font-size="10">cost tracking, trace timeline</text>
+  <text x="800" y="304" text-anchor="middle" fill="#64748b" font-size="10">Prometheus + Grafana</text>
+
+  <!-- ═══ Logo icon: 3 inputs → engine → doc ═══ -->
+  <g transform="translate(1060, 42)">
+    <!-- App-icon backdrop -->
+    <rect x="-36" y="-32" width="72" height="64" rx="15" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5" opacity="0.9"/>
+
+    <!-- Input 1: Gear (Pipeline) — top -->
+    <circle cx="-22" cy="-18" r="5.5" fill="#3b82f6"/>
+    <circle cx="-22" cy="-18" r="2.5" fill="#1e293b"/>
+    <rect x="-23.5" y="-25.5" width="3" height="2.5" rx="0.8" fill="#3b82f6"/>
+    <rect x="-23.5" y="-13" width="3" height="2.5" rx="0.8" fill="#3b82f6"/>
+    <rect x="-30" y="-19.5" width="2.5" height="3" rx="0.8" fill="#3b82f6"/>
+    <rect x="-16.5" y="-19.5" width="2.5" height="3" rx="0.8" fill="#3b82f6"/>
+
+    <!-- Input 2: Robot head (Coordinator/Bot) — mid -->
+    <rect x="-28" y="-6" width="12" height="10" rx="2" fill="#8b5cf6"/>
+    <circle cx="-25" cy="-2" r="1" fill="#ede9fe"/>
+    <circle cx="-19" cy="-2" r="1" fill="#ede9fe"/>
+    <rect x="-25" y="1" width="6" height="1.5" rx="0.5" fill="#ede9fe"/>
+    <line x1="-29" y1="-1" x2="-31" y2="-3" stroke="#a78bfa" stroke-width="1.2" stroke-linecap="round"/>
+    <line x1="-15" y1="-1" x2="-13" y2="-3" stroke="#a78bfa" stroke-width="1.2" stroke-linecap="round"/>
+
+    <!-- Input 3: Chat bubble (Discord/WeChat) — bottom -->
+    <rect x="-28" y="12" width="14" height="10" rx="3" fill="#06b6d4"/>
+    <polygon points="-26,22 -23,22 -26,25" fill="#06b6d4"/>
+    <circle cx="-24" cy="16" r="0.8" fill="#cffafe"/>
+    <circle cx="-21" cy="16" r="0.8" fill="#cffafe"/>
+    <circle cx="-18" cy="16" r="0.8" fill="#cffafe"/>
+
+    <!-- Connection lines → engine -->
+    <line x1="-13" y1="-16" x2="0" y2="-1" stroke="#3b82f6" stroke-width="1" opacity="0.4"/>
+    <line x1="-15" y1="0" x2="0" y2="0" stroke="#8b5cf6" stroke-width="1" opacity="0.4"/>
+    <line x1="-13" y1="17" x2="0" y2="1" stroke="#06b6d4" stroke-width="1" opacity="0.4"/>
+
+    <!-- Center: Conveyor belt (assembly line) -->
+    <!-- Belt surface -->
+    <line x1="-2" y1="-4" x2="12" y2="-4" stroke="#f59e0b" stroke-width="1.5"/>
+    <line x1="-2" y1="4" x2="12" y2="4" stroke="#f59e0b" stroke-width="1.5"/>
+    <!-- Two rollers -->
+    <circle cx="-2" cy="0" r="4" fill="#f59e0b" opacity="0.3" stroke="#f59e0b" stroke-width="1.2"/>
+    <circle cx="-2" cy="0" r="1.5" fill="#f59e0b"/>
+    <circle cx="12" cy="0" r="4" fill="#f59e0b" opacity="0.3" stroke="#f59e0b" stroke-width="1.2"/>
+    <circle cx="12" cy="0" r="1.5" fill="#f59e0b"/>
+    <!-- Items on belt -->
+    <rect x="1" y="-8" width="4" height="4" rx="0.8" fill="#fcd34d"/>
+    <rect x="6" y="-8" width="4" height="4" rx="0.8" fill="#fbbf24"/>
+
+    <!-- Arrow engine → doc -->
+    <line x1="14" y1="0" x2="18" y2="0" stroke="#22c55e" stroke-width="1.5" opacity="0.7"/>
+
+    <!-- Output: Document with fold + checkmark -->
+    <rect x="19" y="-11" width="13" height="16" rx="1.5" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.2"/>
+    <path d="M28,-11 L32,-11 L28,-7 Z" fill="#dcfce7" stroke="#22c55e" stroke-width="0.6"/>
+    <path d="M22,-3 L24,0 L29,-5" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- ═══ Title block (right) ═══ -->
+  <text x="1060" y="110" text-anchor="middle" fill="#f8fafc" font-size="44" font-weight="800" letter-spacing="-1">mas-pipeline</text>
+  <rect x="930" y="124" width="260" height="3" rx="1.5" fill="url(#accent)" opacity="0.5"/>
+  <text x="1060" y="156" text-anchor="middle" fill="#94a3b8" font-size="16" font-weight="400">Multi-Agent System · Pipeline Engine</text>
+
+  <!-- Version badge -->
+  <rect x="994" y="172" width="132" height="26" rx="13" fill="none" stroke="#475569" stroke-width="1"/>
+  <text x="1060" y="190" text-anchor="middle" fill="#64748b" font-size="12" font-weight="500">v0.1 MVP — MIT</text>
+
+  <!-- ═══ Tech pills (bottom) ═══ -->
+  <g font-size="11" font-weight="500">
+    <rect x="170" y="348" width="140" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
+    <text x="240" y="365" text-anchor="middle" fill="#93c5fd">Parallel Tool Calls</text>
+
+    <rect x="324" y="348" width="130" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
+    <text x="389" y="365" text-anchor="middle" fill="#93c5fd">3-Layer Compact</text>
+
+    <rect x="468" y="348" width="130" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
+    <text x="533" y="365" text-anchor="middle" fill="#93c5fd">4-Type Memory</text>
+
+    <rect x="612" y="348" width="140" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
+    <text x="682" y="365" text-anchor="middle" fill="#93c5fd">Kernel Sandbox</text>
+
+    <rect x="766" y="348" width="160" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
+    <text x="846" y="365" text-anchor="middle" fill="#93c5fd">6 LLM Providers</text>
+
+    <rect x="940" y="348" width="160" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
+    <text x="1020" y="365" text-anchor="middle" fill="#93c5fd">Permission Rules</text>
+  </g>
+</svg>

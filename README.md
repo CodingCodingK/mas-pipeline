@@ -6,9 +6,7 @@
 
 A configurable Multi-Agent System engine for content production pipelines. Agents are Markdown files, pipelines are YAML DAGs, and the same workflow runs three ways — as a batch pipeline, as a chat session, or from a group-chat bot — with no per-front-end glue code.
 
-<!-- HERO demo GIF / video — blog_with_review end-to-end including interrupt/resume.
-     File: docs/images/hero-demo.gif  (1280×720, ≤6MB, 10–15s loop) -->
-![mas-pipeline in action](docs/images/hero-demo.gif)
+![mas-pipeline hero banner](docs/images/hero-banner.svg)
 
 ---
 
@@ -20,7 +18,7 @@ First tagged release. Engine, REST API, Web UI, docker stack, and group-chat gat
 
 **Pipeline engine** — YAML DAG with dependency inference from `input` / `output` names · compiled to LangGraph 1.x with Postgres checkpointer · `interrupt: true` nodes for human review (approve / reject-with-feedback / edit-output) · substring-matched routing for branches.
 
-**Three execution modes over one pipeline** — batch pipeline run · plain chat · autonomous chat (`coordinator` calls `spawn_agent` / `start_project_run`) · ClawBot group chat (Discord / QQ / WeChat) with intent routing and two-stage confirmation.
+**Three execution modes over one pipeline** — batch pipeline run · plain chat · autonomous chat (`coordinator` calls `spawn_agent` to decompose and fan out) · ClawBot group chat (Discord / QQ / WeChat) with intent routing and two-stage confirmation.
 
 **Data & retrieval** — multimodal RAG (PDF / PPTX / DOCX / images) into pgvector · default local Ollama embedder, zero cloud key · server boots and degrades gracefully when embedder is offline.
 
@@ -47,8 +45,6 @@ A quick tour of what the system actually does from the user's seat — the three
 
 Everything lives inside a **project**: a container that holds source material, a default pipeline, a run history, and a scoped memory bank. You create one from the `ProjectsPage` dashboard, drop in PDFs / PPTX / DOCX / Markdown, and the RAG layer (`src/rag/`) chunks and embeds them into pgvector. `ProjectDetailPage` then fans out into tabs — `dashboard / pipeline / agents / runs / files / chat / observability` — so a single URL is enough to see and drive everything for one body of work.
 
-<!-- DIAGRAM: three entry lanes → one SessionRunner → shared agent loop → tools / memory / telemetry
-     File: docs/images/three-drivers.svg -->
 ![One engine, three drivers](docs/images/three-drivers.svg)
 
 All three drivers below share the same `SessionRunner` (`_MODE_TO_ROLE = {"chat": "assistant", "autonomous": "coordinator", "bus_chat": "clawbot"}`), the same tool orchestrator, the same telemetry collector, and the same project-scoped memory surface. There is no second runtime path — the drivers are entrypoints into one loop.
@@ -171,7 +167,7 @@ The **isolation invariant** is load-bearing. Only two code paths in the whole pr
 
 `src/agent/compact.py` runs three different compact strategies, each fired under different conditions. All three are **append-only** against the persistence log — the full history stays in PG for replay and audit; only the slice the model sees shrinks.
 
-**1. `micro_compact` — every turn, no LLM.** The cheapest pass. On entry to each agent loop iteration, older tool-result messages beyond the most recent `keep_recent` (default 3) have their `content` replaced with `[Old tool result cleared]`. A read-heavy researcher turn that fired ten `search_docs` calls keeps the three most recent bodies intact; the other seven shrink to a marker string. Free, deterministic, needs no summarizer call.
+**1. `micro_compact` — every turn, no LLM.** The cheapest pass. On entry to each agent loop iteration, tool-result messages older than the last assistant message are checked: only the most recent `keep_recent` (default 5) are kept intact; the rest have their `content` replaced with `[Old tool result cleared]`. Tool results from the current turn (after the last assistant message) are always preserved. A read-heavy researcher turn that fired ten `search_docs` calls keeps the five most recent bodies intact; the other five shrink to a marker string. Free, deterministic, needs no summarizer call.
 
 **2. `auto_compact` — at 85% of context, LLM summarize.** Triggered when `estimate_tokens(...) > ctx_window * autocompact_pct` (`autocompact_pct=0.85` by default). It computes a split point that keeps roughly the last 30% of the context window as recent messages, hands the older slice to the main adapter with a summarization system prompt, and appends `{summary_msg, boundary_msg}` to the tail. The next turn's prompt is sliced tail-to-head from `is_compact_boundary`, so the model effectively sees `[summary] + recent messages`, while PG keeps everything.
 
@@ -184,8 +180,6 @@ Several cross-cutting invariants hold for all three:
 - **3-strike circuit breaker.** Three consecutive compact failures flip `state.compact_breaker_tripped` and silently skip compact for the rest of the runner's lifetime, so a bad stretch can't cascade into a runaway loop.
 - **Runtime slicing is load-bearing.** `agent_loop` passes messages through `slice_messages_for_prompt` at both the adapter call and the `estimate_tokens` measurement, so the compacted view is what's counted *and* what's sent — a mismatch here would make auto_compact fire every turn and grow the list unboundedly.
 
-<!-- IMAGE: append-only compact timeline — messages grow → summary + boundary appended → sliced view.
-     File: docs/images/compact-timeline.svg -->
 ![Append-only compact](docs/images/compact-timeline.svg)
 
 ### Safety: permissions, sandbox, hooks
@@ -248,7 +242,7 @@ src/
   main.py      Lifespan, startup validation, single-worker guard
 
 agents/        11 Markdown agent roles
-pipelines/     5 YAML pipelines (blog × 2, courseware_exam, tests × 2)
+pipelines/     3 production YAML pipelines + 2 test fixtures
 skills/        Markdown skill templates
 config/        settings.yaml · settings.local.yaml · pricing.yaml
 deploy/        prometheus.yml · grafana provisioning
