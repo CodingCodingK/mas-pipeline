@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#0f172a"/>
@@ -19,133 +19,63 @@
   </defs>
 
   <!-- Background -->
-  <rect width="1280" height="400" fill="url(#bg)"/>
+  <rect width="960" height="520" fill="url(#bg)"/>
 
   <!-- Ambient glow spots -->
-  <circle cx="495" cy="180" r="200" fill="url(#glow-blue)"/>
-  <circle cx="1060" cy="140" r="180" fill="url(#glow-purple)"/>
+  <circle cx="480" cy="300" r="220" fill="url(#glow-blue)"/>
+  <circle cx="200" cy="100" r="160" fill="url(#glow-purple)"/>
+  <circle cx="760" cy="120" r="140" fill="url(#glow-purple)"/>
 
   <!-- Subtle grid -->
   <g opacity="0.03" stroke="#fff" stroke-width="0.5">
-    <line x1="0" y1="60" x2="1280" y2="60"/><line x1="0" y1="120" x2="1280" y2="120"/>
-    <line x1="0" y1="180" x2="1280" y2="180"/><line x1="0" y1="240" x2="1280" y2="240"/>
-    <line x1="0" y1="300" x2="1280" y2="300"/><line x1="0" y1="360" x2="1280" y2="360"/>
-    <line x1="160" y1="0" x2="160" y2="400"/><line x1="320" y1="0" x2="320" y2="400"/>
-    <line x1="480" y1="0" x2="480" y2="400"/><line x1="640" y1="0" x2="640" y2="400"/>
-    <line x1="800" y1="0" x2="800" y2="400"/><line x1="960" y1="0" x2="960" y2="400"/>
-    <line x1="1120" y1="0" x2="1120" y2="400"/>
+    <line x1="0" y1="80" x2="960" y2="80"/><line x1="0" y1="160" x2="960" y2="160"/>
+    <line x1="0" y1="240" x2="960" y2="240"/><line x1="0" y1="320" x2="960" y2="320"/>
+    <line x1="0" y1="400" x2="960" y2="400"/><line x1="0" y1="480" x2="960" y2="480"/>
+    <line x1="120" y1="0" x2="120" y2="520"/><line x1="240" y1="0" x2="240" y2="520"/>
+    <line x1="360" y1="0" x2="360" y2="520"/><line x1="480" y1="0" x2="480" y2="520"/>
+    <line x1="600" y1="0" x2="600" y2="520"/><line x1="720" y1="0" x2="720" y2="520"/>
+    <line x1="840" y1="0" x2="840" y2="520"/>
   </g>
 
   <!-- ═══ Particles / floating dots ═══ -->
   <g opacity="0.25">
-    <!-- Scattered across background -->
     <circle cx="45" cy="30" r="1.5" fill="#3b82f6"/>
     <circle cx="128" cy="145" r="1" fill="#8b5cf6"/>
     <circle cx="280" cy="45" r="1.8" fill="#06b6d4"/>
-    <circle cx="350" cy="320" r="1.2" fill="#3b82f6"/>
+    <circle cx="350" cy="420" r="1.2" fill="#3b82f6"/>
     <circle cx="460" cy="50" r="1" fill="#22c55e"/>
-    <circle cx="520" cy="340" r="1.5" fill="#8b5cf6"/>
+    <circle cx="520" cy="440" r="1.5" fill="#8b5cf6"/>
     <circle cx="620" cy="30" r="1.3" fill="#f59e0b"/>
-    <circle cx="680" cy="330" r="1" fill="#ec4899"/>
+    <circle cx="680" cy="430" r="1" fill="#ec4899"/>
     <circle cx="750" cy="40" r="1.6" fill="#3b82f6"/>
     <circle cx="870" cy="50" r="1.2" fill="#06b6d4"/>
-    <circle cx="920" cy="320" r="1.4" fill="#22c55e"/>
-    <circle cx="980" cy="60" r="1" fill="#8b5cf6"/>
-    <circle cx="1030" cy="300" r="1.5" fill="#3b82f6"/>
-    <circle cx="1140" cy="40" r="1.8" fill="#f59e0b"/>
-    <circle cx="1200" cy="100" r="1.2" fill="#ec4899"/>
-    <circle cx="1230" cy="280" r="1" fill="#06b6d4"/>
-    <circle cx="1100" cy="340" r="1.3" fill="#3b82f6"/>
-    <circle cx="160" cy="340" r="1.4" fill="#22c55e"/>
-    <circle cx="30" cy="200" r="1" fill="#f59e0b"/>
-    <circle cx="900" cy="180" r="1.6" fill="#8b5cf6"/>
-    <circle cx="1250" cy="200" r="1.2" fill="#3b82f6"/>
-    <circle cx="70" cy="360" r="1.5" fill="#06b6d4"/>
+    <circle cx="920" cy="420" r="1.4" fill="#22c55e"/>
+    <circle cx="140" cy="440" r="1.4" fill="#22c55e"/>
+    <circle cx="30" cy="260" r="1" fill="#f59e0b"/>
+    <circle cx="900" cy="260" r="1.6" fill="#8b5cf6"/>
+    <circle cx="930" cy="300" r="1.2" fill="#3b82f6"/>
+    <circle cx="70" cy="460" r="1.5" fill="#06b6d4"/>
     <circle cx="400" cy="25" r="1" fill="#ec4899"/>
-    <circle cx="570" cy="290" r="1.3" fill="#22c55e"/>
-    <circle cx="830" cy="310" r="1.8" fill="#3b82f6"/>
-    <circle cx="1170" cy="180" r="1" fill="#8b5cf6"/>
-    <circle cx="240" cy="260" r="1.4" fill="#f59e0b"/>
-    <circle cx="700" cy="140" r="1.2" fill="#06b6d4"/>
+    <circle cx="570" cy="390" r="1.3" fill="#22c55e"/>
+    <circle cx="830" cy="410" r="1.8" fill="#3b82f6"/>
+    <circle cx="240" cy="360" r="1.4" fill="#f59e0b"/>
+    <circle cx="700" cy="200" r="1.2" fill="#06b6d4"/>
   </g>
-
-  <!-- Slightly larger accent particles -->
   <g opacity="0.12">
-    <circle cx="310" cy="140" r="3" fill="#3b82f6"/>
-    <circle cx="650" cy="120" r="2.5" fill="#8b5cf6"/>
-    <circle cx="880" cy="260" r="3" fill="#22c55e"/>
-    <circle cx="1180" cy="150" r="2.5" fill="#f59e0b"/>
-    <circle cx="100" cy="300" r="2.5" fill="#06b6d4"/>
-    <circle cx="500" cy="310" r="3" fill="#ec4899"/>
-    <circle cx="1050" cy="250" r="2.5" fill="#3b82f6"/>
+    <circle cx="310" cy="200" r="3" fill="#3b82f6"/>
+    <circle cx="650" cy="180" r="2.5" fill="#8b5cf6"/>
+    <circle cx="880" cy="360" r="3" fill="#22c55e"/>
+    <circle cx="100" cy="400" r="2.5" fill="#06b6d4"/>
+    <circle cx="500" cy="410" r="3" fill="#ec4899"/>
     <circle cx="780" cy="50" r="3" fill="#8b5cf6"/>
   </g>
 
-  <!-- ═══ Left: 3 input lanes ═══ -->
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- ROW 1: Title block (top center)            -->
+  <!-- ═══════════════════════════════════════════ -->
 
-  <!-- Pipeline -->
-  <rect x="56" y="62" width="160" height="36" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1" opacity="0.8"/>
-  <text x="136" y="85" text-anchor="middle" fill="#93c5fd" font-size="14" font-weight="600">Pipeline</text>
-  <text x="136" y="112" text-anchor="middle" fill="#64748b" font-size="10">3 prebuilt YAML DAGs</text>
-  <text x="136" y="124" text-anchor="middle" fill="#64748b" font-size="10">blog, courseware, custom</text>
-
-  <!-- Coordinator -->
-  <rect x="56" y="152" width="160" height="36" rx="6" fill="#2e1065" stroke="#8b5cf6" stroke-width="1" opacity="0.8"/>
-  <text x="136" y="175" text-anchor="middle" fill="#c4b5fd" font-size="14" font-weight="600">Coordinator</text>
-  <text x="136" y="202" text-anchor="middle" fill="#64748b" font-size="10">decompose, spawn, synthesize</text>
-  <text x="136" y="214" text-anchor="middle" fill="#64748b" font-size="10">no YAML needed</text>
-
-  <!-- ClawBot -->
-  <rect x="56" y="242" width="160" height="36" rx="6" fill="#083344" stroke="#06b6d4" stroke-width="1" opacity="0.8"/>
-  <text x="136" y="265" text-anchor="middle" fill="#67e8f9" font-size="14" font-weight="600">ClawBot</text>
-  <text x="136" y="292" text-anchor="middle" fill="#64748b" font-size="10">Discord / QQ / WeChat</text>
-  <text x="136" y="304" text-anchor="middle" fill="#64748b" font-size="10">two-stage confirm, /resume</text>
-
-  <!-- Converge lines -->
-  <g fill="none" stroke-width="1.5" opacity="0.3">
-    <path d="M216,80 C310,80 340,180 390,180" stroke="#3b82f6"/>
-    <path d="M216,170 C310,170 340,180 390,180" stroke="#8b5cf6"/>
-    <path d="M216,260 C310,260 340,180 390,180" stroke="#06b6d4"/>
-  </g>
-  <circle cx="390" cy="180" r="5" fill="#8b5cf6" opacity="0.5"/>
-
-  <!-- ═══ Center: Engine ═══ -->
-  <rect x="410" y="142" width="170" height="76" rx="10" fill="#3b82f6" opacity="0.08"/>
-  <rect x="414" y="146" width="162" height="68" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
-  <text x="495" y="172" text-anchor="middle" fill="#f8fafc" font-size="18" font-weight="700">Engine</text>
-  <text x="495" y="192" text-anchor="middle" fill="#64748b" font-size="11">streaming ReAct loop</text>
-  <text x="495" y="204" text-anchor="middle" fill="#64748b" font-size="11">one runtime, all modes</text>
-
-  <!-- Fan-out lines -->
-  <g fill="none" stroke-width="1.5" opacity="0.3">
-    <path d="M576,180 C640,180 660,80 720,80" stroke="#22c55e"/>
-    <path d="M576,180 C640,180 660,170 720,170" stroke="#f59e0b"/>
-    <path d="M576,180 C640,180 660,260 720,260" stroke="#ec4899"/>
-  </g>
-  <circle cx="576" cy="180" r="5" fill="#3b82f6" opacity="0.5"/>
-
-  <!-- ═══ Right: 3 output lanes ═══ -->
-
-  <!-- Content -->
-  <rect x="720" y="62" width="160" height="36" rx="6" fill="#052e16" stroke="#22c55e" stroke-width="1" opacity="0.8"/>
-  <text x="800" y="85" text-anchor="middle" fill="#86efac" font-size="14" font-weight="600">Content</text>
-  <text x="800" y="112" text-anchor="middle" fill="#64748b" font-size="10">Markdown posts, exams</text>
-  <text x="800" y="124" text-anchor="middle" fill="#64748b" font-size="10">research reports, drafts</text>
-
-  <!-- Human Review -->
-  <rect x="720" y="152" width="160" height="36" rx="6" fill="#451a03" stroke="#f59e0b" stroke-width="1" opacity="0.8"/>
-  <text x="800" y="175" text-anchor="middle" fill="#fcd34d" font-size="14" font-weight="600">Human Review</text>
-  <text x="800" y="202" text-anchor="middle" fill="#64748b" font-size="10">approve / reject / edit</text>
-  <text x="800" y="214" text-anchor="middle" fill="#64748b" font-size="10">interrupt: true nodes</text>
-
-  <!-- Observability -->
-  <rect x="720" y="242" width="160" height="36" rx="6" fill="#500724" stroke="#ec4899" stroke-width="1" opacity="0.8"/>
-  <text x="800" y="265" text-anchor="middle" fill="#f9a8d4" font-size="14" font-weight="600">Observability</text>
-  <text x="800" y="292" text-anchor="middle" fill="#64748b" font-size="10">cost tracking, trace timeline</text>
-  <text x="800" y="304" text-anchor="middle" fill="#64748b" font-size="10">Prometheus + Grafana</text>
-
-  <!-- ═══ Logo icon: 3 inputs → engine → doc ═══ -->
-  <g transform="translate(1060, 42)">
+  <!-- Logo icon -->
+  <g transform="translate(480, 46)">
     <!-- App-icon backdrop -->
     <rect x="-36" y="-32" width="72" height="64" rx="15" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5" opacity="0.9"/>
 
@@ -178,15 +108,12 @@
     <line x1="-13" y1="17" x2="0" y2="1" stroke="#06b6d4" stroke-width="1" opacity="0.4"/>
 
     <!-- Center: Conveyor belt (assembly line) -->
-    <!-- Belt surface -->
     <line x1="-2" y1="-4" x2="12" y2="-4" stroke="#f59e0b" stroke-width="1.5"/>
     <line x1="-2" y1="4" x2="12" y2="4" stroke="#f59e0b" stroke-width="1.5"/>
-    <!-- Two rollers -->
     <circle cx="-2" cy="0" r="4" fill="#f59e0b" opacity="0.3" stroke="#f59e0b" stroke-width="1.2"/>
     <circle cx="-2" cy="0" r="1.5" fill="#f59e0b"/>
     <circle cx="12" cy="0" r="4" fill="#f59e0b" opacity="0.3" stroke="#f59e0b" stroke-width="1.2"/>
     <circle cx="12" cy="0" r="1.5" fill="#f59e0b"/>
-    <!-- Items on belt -->
     <rect x="1" y="-8" width="4" height="4" rx="0.8" fill="#fcd34d"/>
     <rect x="6" y="-8" width="4" height="4" rx="0.8" fill="#fbbf24"/>
 
@@ -199,33 +126,94 @@
     <path d="M22,-3 L24,0 L29,-5" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
-  <!-- ═══ Title block (right) ═══ -->
-  <text x="1060" y="110" text-anchor="middle" fill="#f8fafc" font-size="44" font-weight="800" letter-spacing="-1">mas-pipeline</text>
-  <rect x="930" y="124" width="260" height="3" rx="1.5" fill="url(#accent)" opacity="0.5"/>
-  <text x="1060" y="156" text-anchor="middle" fill="#94a3b8" font-size="16" font-weight="400">Multi-Agent System · Pipeline Engine</text>
+  <!-- Title text -->
+  <text x="480" y="120" text-anchor="middle" fill="#f8fafc" font-size="42" font-weight="800" letter-spacing="-1">mas-pipeline</text>
+  <rect x="350" y="132" width="260" height="3" rx="1.5" fill="url(#accent)" opacity="0.5"/>
+  <text x="480" y="158" text-anchor="middle" fill="#94a3b8" font-size="15" font-weight="400">Multi-Agent System · Pipeline Engine</text>
 
   <!-- Version badge -->
-  <rect x="994" y="172" width="132" height="26" rx="13" fill="none" stroke="#475569" stroke-width="1"/>
-  <text x="1060" y="190" text-anchor="middle" fill="#64748b" font-size="12" font-weight="500">v0.1 MVP — MIT</text>
+  <rect x="414" y="170" width="132" height="26" rx="13" fill="none" stroke="#475569" stroke-width="1"/>
+  <text x="480" y="188" text-anchor="middle" fill="#64748b" font-size="12" font-weight="500">v0.1 MVP — MIT</text>
 
-  <!-- ═══ Tech pills (bottom) ═══ -->
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- ROW 2: Flow diagram (middle)               -->
+  <!-- ═══════════════════════════════════════════ -->
+
+  <!-- 3 input boxes (left) -->
+  <rect x="60" y="224" width="160" height="36" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1" opacity="0.8"/>
+  <text x="140" y="247" text-anchor="middle" fill="#93c5fd" font-size="14" font-weight="600">Pipeline</text>
+  <text x="140" y="274" text-anchor="middle" fill="#64748b" font-size="10">3 prebuilt YAML DAGs</text>
+  <text x="140" y="286" text-anchor="middle" fill="#64748b" font-size="10">blog, courseware, custom</text>
+
+  <rect x="60" y="302" width="160" height="36" rx="6" fill="#2e1065" stroke="#8b5cf6" stroke-width="1" opacity="0.8"/>
+  <text x="140" y="325" text-anchor="middle" fill="#c4b5fd" font-size="14" font-weight="600">Coordinator</text>
+  <text x="140" y="352" text-anchor="middle" fill="#64748b" font-size="10">decompose, spawn, synthesize</text>
+  <text x="140" y="364" text-anchor="middle" fill="#64748b" font-size="10">no YAML needed</text>
+
+  <rect x="60" y="380" width="160" height="36" rx="6" fill="#083344" stroke="#06b6d4" stroke-width="1" opacity="0.8"/>
+  <text x="140" y="403" text-anchor="middle" fill="#67e8f9" font-size="14" font-weight="600">ClawBot</text>
+  <text x="140" y="430" text-anchor="middle" fill="#64748b" font-size="10">Discord / QQ / WeChat</text>
+  <text x="140" y="442" text-anchor="middle" fill="#64748b" font-size="10">two-stage confirm, /resume</text>
+
+  <!-- Converge lines → Engine -->
+  <g fill="none" stroke-width="1.5" opacity="0.3">
+    <path d="M220,242 C310,242 340,320 390,320" stroke="#3b82f6"/>
+    <path d="M220,320 C310,320 340,320 390,320" stroke="#8b5cf6"/>
+    <path d="M220,398 C310,398 340,320 390,320" stroke="#06b6d4"/>
+  </g>
+  <circle cx="390" cy="320" r="5" fill="#8b5cf6" opacity="0.5"/>
+
+  <!-- Engine (center) -->
+  <rect x="410" y="282" width="140" height="76" rx="10" fill="#3b82f6" opacity="0.08"/>
+  <rect x="414" y="286" width="132" height="68" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="480" y="314" text-anchor="middle" fill="#f8fafc" font-size="18" font-weight="700">Engine</text>
+  <text x="480" y="334" text-anchor="middle" fill="#64748b" font-size="11">streaming ReAct loop</text>
+  <text x="480" y="346" text-anchor="middle" fill="#64748b" font-size="11">one runtime, all modes</text>
+
+  <!-- Fan-out lines → outputs -->
+  <g fill="none" stroke-width="1.5" opacity="0.3">
+    <path d="M546,320 C600,320 620,242 680,242" stroke="#22c55e"/>
+    <path d="M546,320 C600,320 620,320 680,320" stroke="#f59e0b"/>
+    <path d="M546,320 C600,320 620,398 680,398" stroke="#ec4899"/>
+  </g>
+  <circle cx="546" cy="320" r="5" fill="#3b82f6" opacity="0.5"/>
+
+  <!-- 3 output boxes (right) -->
+  <rect x="680" y="224" width="160" height="36" rx="6" fill="#052e16" stroke="#22c55e" stroke-width="1" opacity="0.8"/>
+  <text x="760" y="247" text-anchor="middle" fill="#86efac" font-size="14" font-weight="600">Content</text>
+  <text x="760" y="274" text-anchor="middle" fill="#64748b" font-size="10">Markdown posts, exams</text>
+  <text x="760" y="286" text-anchor="middle" fill="#64748b" font-size="10">research reports, drafts</text>
+
+  <rect x="680" y="302" width="160" height="36" rx="6" fill="#451a03" stroke="#f59e0b" stroke-width="1" opacity="0.8"/>
+  <text x="760" y="325" text-anchor="middle" fill="#fcd34d" font-size="14" font-weight="600">Human Review</text>
+  <text x="760" y="352" text-anchor="middle" fill="#64748b" font-size="10">approve / reject / edit</text>
+  <text x="760" y="364" text-anchor="middle" fill="#64748b" font-size="10">interrupt: true nodes</text>
+
+  <rect x="680" y="380" width="160" height="36" rx="6" fill="#500724" stroke="#ec4899" stroke-width="1" opacity="0.8"/>
+  <text x="760" y="403" text-anchor="middle" fill="#f9a8d4" font-size="14" font-weight="600">Observability</text>
+  <text x="760" y="430" text-anchor="middle" fill="#64748b" font-size="10">cost tracking, trace timeline</text>
+  <text x="760" y="442" text-anchor="middle" fill="#64748b" font-size="10">Prometheus + Grafana</text>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- ROW 3: Tech pills (bottom)                 -->
+  <!-- ═══════════════════════════════════════════ -->
   <g font-size="11" font-weight="500">
-    <rect x="170" y="348" width="140" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
-    <text x="240" y="365" text-anchor="middle" fill="#93c5fd">Parallel Tool Calls</text>
+    <rect x="68" y="476" width="140" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
+    <text x="138" y="493" text-anchor="middle" fill="#93c5fd">Parallel Tool Calls</text>
 
-    <rect x="324" y="348" width="130" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
-    <text x="389" y="365" text-anchor="middle" fill="#93c5fd">3-Layer Compact</text>
+    <rect x="222" y="476" width="120" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
+    <text x="282" y="493" text-anchor="middle" fill="#93c5fd">3-Layer Compact</text>
 
-    <rect x="468" y="348" width="130" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
-    <text x="533" y="365" text-anchor="middle" fill="#93c5fd">4-Type Memory</text>
+    <rect x="356" y="476" width="120" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
+    <text x="416" y="493" text-anchor="middle" fill="#93c5fd">4-Type Memory</text>
 
-    <rect x="612" y="348" width="140" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
-    <text x="682" y="365" text-anchor="middle" fill="#93c5fd">Kernel Sandbox</text>
+    <rect x="490" y="476" width="130" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
+    <text x="555" y="493" text-anchor="middle" fill="#93c5fd">Kernel Sandbox</text>
 
-    <rect x="766" y="348" width="160" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
-    <text x="846" y="365" text-anchor="middle" fill="#93c5fd">6 LLM Providers</text>
+    <rect x="634" y="476" width="130" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
+    <text x="699" y="493" text-anchor="middle" fill="#93c5fd">6 LLM Providers</text>
 
-    <rect x="940" y="348" width="160" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
-    <text x="1020" y="365" text-anchor="middle" fill="#93c5fd">Permission Rules</text>
+    <rect x="778" y="476" width="130" height="26" rx="13" fill="#1e3a5f" opacity="0.5"/>
+    <text x="843" y="493" text-anchor="middle" fill="#93c5fd">Permission Rules</text>
   </g>
 </svg>
