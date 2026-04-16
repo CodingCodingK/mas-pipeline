@@ -36,7 +36,9 @@ First tagged release. Engine, REST API, Web UI, docker stack, and group-chat gat
 
 A quick tour of what the system actually does from the user's seat — the three ways in, what each one looks like in the browser, and how the pages stitch the whole thing together.
 
-[▶ Watch the MVP demo on Bilibili](https://www.bilibili.com/video/BV1Nzd8BeEuF)
+https://github.com/user-attachments/assets/ec2f93ca-2f2c-4dd5-9749-c22bbe2629c6
+
+[▶ Watch on Bilibili](https://www.bilibili.com/video/BV1Nzd8BeEuF)
 
 ### A project at a glance
 

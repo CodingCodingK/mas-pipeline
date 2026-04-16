@@ -36,7 +36,9 @@
 
 从用户视角快速看一遍系统到底能做什么 —— 三种入口、每种入口在浏览器里长什么样，以及这些页面是怎么串起来的。
 
-[▶ 在 Bilibili 观看 MVP 演示](https://www.bilibili.com/video/BV1Nzd8BeEuF)
+https://github.com/user-attachments/assets/ec2f93ca-2f2c-4dd5-9749-c22bbe2629c6
+
+[▶ 在 Bilibili 观看完整版](https://www.bilibili.com/video/BV1Nzd8BeEuF)
 
 ### 项目是一切的起点
 
