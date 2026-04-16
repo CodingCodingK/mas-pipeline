@@ -93,7 +93,7 @@ class AgentConfig(BaseModel):
 class CompactConfig(BaseModel):
     autocompact_pct: float = 0.85
     blocking_pct: float = 0.95
-    micro_keep_recent: int = 3
+    micro_keep_recent: int = 5
 
 
 class SessionConfig(BaseModel):

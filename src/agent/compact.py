@@ -126,17 +126,38 @@ def get_thresholds(model: str) -> CompactThresholds:
 # ── Microcompact ────────────────────────────────────────────
 
 
-def micro_compact(messages: list[dict], keep_recent: int = 3) -> list[dict]:
-    """Clear old tool-result content, keeping only the most recent ones intact.
+def micro_compact(messages: list[dict], keep_recent: int = 5) -> list[dict]:
+    """Clear old tool-result content, keeping recent ones intact.
+
+    Two protection layers (aligned with Claude Code's micro-compact design):
+    1. **Current-turn shield**: all tool results after the last assistant
+       message are unconditionally preserved — the LLM that issued those
+       tool calls has never seen the results yet; clearing them would cause
+       information loss or redundant re-calls.
+    2. **keep_recent budget**: among the *older* tool results (before the
+       last assistant message), keep the N most recent intact; clear the rest.
 
     Modifies messages in-place and returns the same list.
     """
-    tool_indices = [i for i, msg in enumerate(messages) if msg.get("role") == "tool"]
+    # Find the last assistant message index — everything after it belongs
+    # to the current turn and must not be touched.
+    last_assistant_idx = -1
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("role") == "assistant":
+            last_assistant_idx = i
+            break
 
-    if len(tool_indices) <= keep_recent:
+    # Collect tool-result indices that are BEFORE the last assistant msg
+    # (i.e. from completed prior turns only).
+    older_tool_indices = [
+        i for i, msg in enumerate(messages)
+        if msg.get("role") == "tool" and i < last_assistant_idx
+    ]
+
+    if len(older_tool_indices) <= keep_recent:
         return messages
 
-    to_clear = tool_indices[: len(tool_indices) - keep_recent]
+    to_clear = older_tool_indices[: len(older_tool_indices) - keep_recent]
     for idx in to_clear:
         if messages[idx].get("content") != "[Old tool result cleared]":
             messages[idx] = {**messages[idx], "content": "[Old tool result cleared]"}

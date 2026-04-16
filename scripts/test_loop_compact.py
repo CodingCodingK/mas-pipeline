@@ -161,7 +161,7 @@ async def test_autocompact_trigger():
 
     def fake_estimate(msgs):
         call_count[0] += 1
-        if call_count[0] <= 1:
+        if call_count[0] <= 2:
             return 1500  # exceeds autocompact=1000, below blocking=2000
         return 200  # after compact
 

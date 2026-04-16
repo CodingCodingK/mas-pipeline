@@ -47,7 +47,7 @@ agent:
 compact:
   autocompact_pct: 0.85
   blocking_pct: 0.95
-  micro_keep_recent: 3
+  micro_keep_recent: 5
 
 default_user:
   name: default

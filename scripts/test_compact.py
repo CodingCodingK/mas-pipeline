@@ -96,26 +96,33 @@ print("\n=== 4. Microcompact ===")
 
 from src.agent.compact import micro_compact
 
-# 5 tool results, keep 3
+# Current-turn shield: tool results after the last assistant msg are never cleared.
+# Here t4-t7 are "current turn" (after last assistant at index 5).
+# t1-t3 are older (before last assistant). With keep_recent=2, t1 gets cleared.
 msgs = [
     {"role": "system", "content": "sys"},
     {"role": "tool", "tool_call_id": "t1", "content": "result1"},
-    {"role": "assistant", "content": "ok"},
+    {"role": "assistant", "content": "first reply"},
     {"role": "tool", "tool_call_id": "t2", "content": "result2"},
     {"role": "tool", "tool_call_id": "t3", "content": "result3"},
+    {"role": "assistant", "content": "second reply"},
     {"role": "tool", "tool_call_id": "t4", "content": "result4"},
     {"role": "tool", "tool_call_id": "t5", "content": "result5"},
+    {"role": "tool", "tool_call_id": "t6", "content": "result6"},
+    {"role": "tool", "tool_call_id": "t7", "content": "result7"},
 ]
-result = micro_compact(msgs, keep_recent=3)
+result = micro_compact(msgs, keep_recent=2)
 check("Microcompact returns same list", result is msgs)
 check("Old tool 1 cleared", msgs[1]["content"] == "[Old tool result cleared]")
-check("Old tool 2 cleared", msgs[3]["content"] == "[Old tool result cleared]")
-check("Recent tool 3 kept", msgs[4]["content"] == "result3")
-check("Recent tool 4 kept", msgs[5]["content"] == "result4")
-check("Recent tool 5 kept", msgs[6]["content"] == "result5")
+check("Old tool 2 kept (within keep_recent)", msgs[3]["content"] == "result2")
+check("Old tool 3 kept (within keep_recent)", msgs[4]["content"] == "result3")
+check("Current-turn tool 4 shielded", msgs[6]["content"] == "result4")
+check("Current-turn tool 5 shielded", msgs[7]["content"] == "result5")
+check("Current-turn tool 6 shielded", msgs[8]["content"] == "result6")
+check("Current-turn tool 7 shielded", msgs[9]["content"] == "result7")
 check("System untouched", msgs[0]["content"] == "sys")
 
-# Fewer than keep_recent
+# Fewer than keep_recent among older tools → no clearing
 few_msgs = [
     {"role": "tool", "tool_call_id": "t1", "content": "r1"},
     {"role": "tool", "tool_call_id": "t2", "content": "r2"},
