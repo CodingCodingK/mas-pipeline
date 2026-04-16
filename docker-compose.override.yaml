@@ -4,3 +4,6 @@ services:
       - "8000:8000"
     volumes:
       - ./src:/app/src
+  gateway:
+    volumes:
+      - ./src:/app/src
