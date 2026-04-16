@@ -236,12 +236,32 @@ app.add_api_route("/metrics", metrics_endpoint, methods=["GET"], include_in_sche
 
 
 if __name__ == "__main__":
+    import selectors
+
     import uvicorn
 
     settings = get_settings()
-    uvicorn.run(
-        "src.main:app",
-        host=settings.server.host,
-        port=settings.server.port,
-        reload=settings.server.reload,
-    )
+
+    if platform.system() == "Windows" and not settings.server.reload:
+        # uvicorn.run() calls asyncio.run() which creates a fresh event loop,
+        # ignoring the module-level WindowsSelectorEventLoopPolicy.
+        # Drive the server ourselves so we can pass loop_factory.
+        config = uvicorn.Config(
+            "src.main:app",
+            host=settings.server.host,
+            port=settings.server.port,
+        )
+        server = uvicorn.Server(config)
+        asyncio.run(
+            server.serve(),
+            loop_factory=lambda: asyncio.SelectorEventLoop(
+                selectors.SelectSelector()
+            ),
+        )
+    else:
+        uvicorn.run(
+            "src.main:app",
+            host=settings.server.host,
+            port=settings.server.port,
+            reload=settings.server.reload,
+        )

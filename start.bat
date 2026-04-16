@@ -12,10 +12,19 @@ if not exist ".env" (
     exit /b 1
 )
 
-echo ============================================================
-echo   mas-pipeline : docker compose up --build -d
-echo ============================================================
-docker compose up --build -d
+set "PROFILE_FLAG="
+if /i "%~1"=="--monitoring" set "PROFILE_FLAG=--profile monitoring"
+
+if defined PROFILE_FLAG (
+    echo ============================================================
+    echo   mas-pipeline : docker compose --profile monitoring up --build -d
+    echo ============================================================
+) else (
+    echo ============================================================
+    echo   mas-pipeline : docker compose up --build -d
+    echo ============================================================
+)
+docker compose %PROFILE_FLAG% up --build -d
 if errorlevel 1 (
     echo.
     echo [X] docker compose failed. See output above.
@@ -68,12 +77,22 @@ echo   Enable/disable        config/settings.local.yaml : channels.*.enabled
 echo   Tail logs             docker compose logs -f gateway
 echo   Bot token (Discord)   config/settings.local.yaml : channels.discord.token
 echo.
+if defined PROFILE_FLAG (
+echo ============================================================
+echo   Monitoring
+echo ============================================================
+echo.
+echo   Prometheus            http://localhost:9090
+echo   Grafana               http://localhost:3000    ^(admin/admin^)
+echo.
+)
 echo ============================================================
 echo   Useful commands
 echo ============================================================
 echo   docker compose logs -f api web
 echo   docker compose logs -f gateway
 echo   docker compose ps
+echo   start.bat --monitoring    ^(add Prometheus + Grafana^)
 echo   stop.bat    ^(stops all services^)
 echo.
 echo Window will stay open. Close it manually when done.

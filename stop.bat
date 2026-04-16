@@ -5,9 +5,9 @@ setlocal
 cd /d "%~dp0"
 
 echo ============================================================
-echo   mas-pipeline : docker compose down
+echo   mas-pipeline : docker compose down (all profiles)
 echo ============================================================
-docker compose down
+docker compose --profile monitoring down
 if errorlevel 1 (
     echo.
     echo [X] docker compose down failed. See output above.

@@ -206,11 +206,13 @@ The collector tracks five event families — **llm_call** (tokens / latency / fi
 
 `ObservabilityPage.tsx` reads from `/api/telemetry/*` endpoints and draws the lot with Recharts — a timeline of LLM calls, a tool-call histogram, stacked token cost over time, and a per-session conversation view. Three subtabs (`conversations / aggregates / timeline`) let you slice by session, project, or date window.
 
+![Observability — aggregates dashboard](docs/images/observability-aggregates.png)
+
+![Observability — event trace timeline](docs/images/observability-trace.png)
+
 The `/metrics` endpoint additionally exposes five Prometheus signals — `sessions_active`, `workers_running`, `pg_connections_used`, `sse_connections`, `messages_total`. The three registry-backed gauges use **pull callbacks** against the real session registry, the jobs registry, and `engine.pool.checkedout()`, so there is no drift-prone inc/dec path — the numbers always reflect reality on scrape. An opt-in compose profile (`--profile monitoring`) brings up Prometheus + Grafana with an auto-provisioned dashboard under `deploy/grafana/`.
 
-<!-- IMAGE: Observability page + Grafana dashboard, 2×1 composite.
-     File: docs/images/observability.png -->
-![Session telemetry and Grafana dashboard](docs/images/observability.png)
+![Grafana operational dashboard](docs/images/grafana-dashboard.png)
 
 ### Skills and MCP, in passing
 
@@ -318,7 +320,7 @@ Rough size: agent runtime ~1400 LoC, pipeline + session engine ~2400 LoC, fronte
 
 ```bash
 # 1. Clone & configure
-git clone <repo-url> mas-pipeline && cd mas-pipeline
+git clone https://github.com/CodingCodingK/mas-pipeline.git && cd mas-pipeline
 cp .env.example .env                              # fill in ≥1 LLM provider key
 cp config/settings.local.yaml.example config/settings.local.yaml  # optional: override model tiers
 

@@ -10,9 +10,15 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-docker compose up --build -d
+PROFILE_FLAG=""
+if [ "${1:-}" = "--monitoring" ]; then
+    PROFILE_FLAG="--profile monitoring"
+    echo "Monitoring enabled: Prometheus :9090 + Grafana :3000 (admin/admin)"
+fi
+
+docker compose $PROFILE_FLAG up --build -d
 echo ""
 echo "All services starting. Streaming logs (Ctrl+C to detach)..."
 echo "Open http://localhost in your browser."
 echo ""
-docker compose logs -f api web
+docker compose $PROFILE_FLAG logs -f api web
