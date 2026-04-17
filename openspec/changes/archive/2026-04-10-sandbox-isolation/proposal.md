@@ -28,5 +28,5 @@ Permission rules pattern-match strings before tool calls, so they can be evaded 
 - Modified code: `src/tools/builtins/shell.py` (1 wrap call), `src/config.py` (new section), startup banner.
 - Operational: Linux deployments need `apt install bubblewrap`; if missing the system warns and runs commands raw (configurable to hard-fail).
 - CI: Linux runners install bubblewrap; macOS runners use system `sandbox-exec`; Windows CI skips sandbox tests via `skipif`.
-- Dev experience: Junjie's primary box is Windows — sandbox is a no-op there with one-time warning, so no friction.
+- Dev experience: the primary dev box is Windows — sandbox is a no-op there with one-time warning, so no friction.
 - No spec breakage; ShellTool's external contract (input/output/errors) is unchanged when the wrapped command succeeds. Wrapped failures bubble up the underlying exit code.

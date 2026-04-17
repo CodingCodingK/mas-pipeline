@@ -14,7 +14,7 @@ The full design discussion is captured in `.plan/sandbox_design_notes.md`; this 
 - Keep the implementation under ~200 lines across one new package.
 - Default to **on**; degrade gracefully when the sandbox binary is missing (warn + passthrough), with an opt-in hard-fail.
 - Make Permission rules the single source of truth: anything writable to Permission is writable to the sandbox.
-- Zero friction on Windows (Junjie's primary dev box): one-line warning at startup, then transparent passthrough.
+- Zero friction on Windows (the primary dev box): one-line warning at startup, then transparent passthrough.
 
 **Non-Goals:**
 - Docker / container backends. Per-call namespace wrap is faster, lighter, and avoids image build / volume / Windows-shared-mount headaches.
