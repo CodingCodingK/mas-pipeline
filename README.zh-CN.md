@@ -8,6 +8,18 @@
 
 ![mas-pipeline hero banner](docs/images/hero-banner.svg)
 
+### 目录
+
+- [MVP 功能清单](#v01--mvp-功能清单)
+- [产品速览](#产品速览)
+- [幕后](#幕后)
+- [代码结构](#代码结构)
+- [技术栈](#技术栈)
+- [快速上手](#快速上手)
+- [内置管线](#内置管线)
+- [MVP 演示视频](#mvp-演示视频)
+- [许可证](#许可证)
+
 ---
 
 ## v0.1 — MVP 功能清单
@@ -36,7 +48,9 @@
 
 从用户视角快速看一遍系统到底能做什么 —— 三种入口、每种入口在浏览器里长什么样，以及这些页面是怎么串起来的。
 
-https://github.com/user-attachments/assets/ec2f93ca-2f2c-4dd5-9749-c22bbe2629c6
+![产品速览](docs/images/product-tour.png)
+
+> 完整演示请看 [MVP 演示视频](#mvp-演示视频)。
 
 ### 项目是一切的起点
 
@@ -365,6 +379,12 @@ pytest scripts/test_e2e_smoke.py                   # 端到端集成测试
 | `test_parallel` | (Researcher ∥ Analyst ∥ FactChecker) → Writer → Reviewer → Editor | 并行扇入/扇出回归 fixture |
 
 新加一条管线只需往 `pipelines/` 丢一个 YAML —— 或者在 App 里用 DAG 编辑器动笔。
+
+---
+
+## MVP 演示视频
+
+https://github.com/user-attachments/assets/ec2f93ca-2f2c-4dd5-9749-c22bbe2629c6
 
 ---
 

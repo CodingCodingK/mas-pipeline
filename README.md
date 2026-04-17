@@ -8,6 +8,18 @@ A configurable Multi-Agent System engine for content production pipelines. Agent
 
 ![mas-pipeline hero banner](docs/images/hero-banner.svg)
 
+### Table of Contents
+
+- [MVP Feature Set](#v01--mvp-feature-set)
+- [Product Tour](#product-tour)
+- [Under the Hood](#under-the-hood)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Quick Start](#quick-start)
+- [Prebuilt Pipelines](#prebuilt-pipelines)
+- [MVP Demo Video](#mvp-demo-video)
+- [License](#license)
+
 ---
 
 ## v0.1 — MVP feature set
@@ -36,7 +48,9 @@ First tagged release. Engine, REST API, Web UI, docker stack, and group-chat gat
 
 A quick tour of what the system actually does from the user's seat — the three ways in, what each one looks like in the browser, and how the pages stitch the whole thing together.
 
-https://github.com/user-attachments/assets/ec2f93ca-2f2c-4dd5-9749-c22bbe2629c6
+![Product Tour](docs/images/product-tour.png)
+
+> See the full walkthrough in the [MVP Demo Video](#mvp-demo-video).
 
 ### A project at a glance
 
@@ -365,6 +379,12 @@ pytest scripts/test_e2e_smoke.py                   # end-to-end integration test
 | `test_parallel` | (Researcher ∥ Analyst ∥ FactChecker) → Writer → Reviewer → Editor | Parallel fan-in/fan-out regression fixture |
 
 Add a new pipeline by dropping a YAML into `pipelines/` — or author one inside the app with the DAG editor.
+
+---
+
+## MVP Demo Video
+
+https://github.com/user-attachments/assets/ec2f93ca-2f2c-4dd5-9749-c22bbe2629c6
 
 ---
 
